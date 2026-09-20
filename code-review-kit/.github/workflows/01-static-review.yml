@@ -1,0 +1,101 @@
+# 01 — 靜態審查（不花 AI token，最便宜的閘門）
+#
+# 這組負責「機器能確定的事情」：linter、secret、依賴漏洞。
+# 它不需要任何 API key，跑得快，適合設成 required status check 來擋 merge。
+#
+# 注意：本檔的 action 版本已於 2026-09-17 對照 GitHub API 驗證為當時最新，
+# 並確認用到的 inputs 仍存在。正式環境建議進一步 pin 到 commit SHA。
+# 版本對照表見 code-review-kit/README.md §2。
+
+name: 01 static review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# 最小權限起步，各 job 再按需提升
+permissions:
+  contents: read
+
+# 同一 PR 只保留最新一次，push 新 commit 就取消舊的（省 CI 分鐘）
+concurrency:
+  group: static-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------- lint ----
+  reviewdog:
+    name: reviewdog (diff-only)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # github-pr-review reporter 需要
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false # 不要把 token 留在 git config
+
+      - uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest # 正式環境請改成 vX.Y.Z
+
+      # 換成你自己的 linter。唯一要求：輸出 `file:line:col: message`。
+      # 也可以直接用官方包好的 action：
+      #   reviewdog/action-eslint@v1、reviewdog/action-shellcheck@v1、
+      #   reviewdog/action-hadolint@v1、reviewdog/action-rubocop@v1
+      - name: Run linter
+        run: |
+          mkdir -p out
+          # TODO: 換成你的 linter（範例：shellcheck 全部 shell script）
+          (find . -name '*.sh' -not -path './.git/*' -print0 \
+            | xargs -0 -r shellcheck -f gcc || true) > out/lint.txt 2>&1
+          head -30 out/lint.txt || true
+
+      - name: Post findings on changed lines only
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          reviewdog \
+            -efm='%f:%l:%c: %m' \
+            -name='shellcheck' \
+            -reporter=github-pr-review \
+            -filter-mode=added \
+            -fail-level=error \
+            -tee < out/lint.txt
+
+  # -------------------------------------------------------- secret scan ----
+  gitleaks:
+    name: gitleaks
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks 需要完整歷史才能比對
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 組織帳號才需要；個人 repo 可留空
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # --------------------------------------------------- dependency review ----
+  dependency-review:
+    name: dependency review
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # comment-summary-in-pr 需要
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure

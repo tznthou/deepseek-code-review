@@ -1,0 +1,24 @@
+# 專案根目錄的 .gitignore。
+#
+# 為什麼有兩份：`code-review-kit/.gitignore` 是**要被複製到目標 repo** 的獨立單元
+# （README §2 步驟 1 教的是 `cat .gitignore >> <your-repo>/.gitignore`），
+# 所以它只寫 kit 自己會產生的東西。這一份管的是整個專案資料夾。
+# 子目錄的 .gitignore 只從它自己那層往下生效——2026-09-20 實測：
+# 少了這份，根目錄的 .DS_Store 會被 `git add -A` 直接收進去。
+
+# ── macOS ──
+.DS_Store
+
+# ── 憑證：這個專案的 kit 需要 DEEPSEEK_API_KEY，別讓它落地 ──
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# ── Claude Code 的本機設定與私有 skill，絕不進 repo ──
+.claude/
+
+# ── Python（tools/ 與 .github/scripts/ 是純標準庫腳本，但跑過就會留 cache）──
+__pycache__/
+*.py[cod]

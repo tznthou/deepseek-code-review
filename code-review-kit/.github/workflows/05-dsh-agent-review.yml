@@ -1,0 +1,158 @@
+# 05 — 用 DeepSeek Harness（dsh）agent 做 review
+#
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │ ⛔ 2026-09-20 評估結論：**不建議採用**。本檔保留作為評估紀錄，不是推薦路線。│
+# └──────────────────────────────────────────────────────────────────────────┘
+#
+# 兩個獨立的理由，任一個都足以否掉它：
+#
+# 1. **依賴的 CLI 是 developer preview，漂移速度是「兩天一版」。**
+#    2026-09-17 記錄 `DSH_VERSION=0.1.5-rc.1`，09-19 複查 npm `latest` 已是
+#    `0.1.5-rc.2`。官方明示會有破壞性變更，等於你得把 CI 的穩定性押在
+#    一個每兩天換一次地基的東西上。
+#
+# 2. **label 觸發在實務上等於不會跑。** 這不是推測，是同一個帳號下的前例：
+#    另一個 repo 的 `ai-review.yml` 同樣用 label 觸發，**22 次執行紀錄裡
+#    19 次 skipped、3 次 cancelled，沒有一次真的跑完**——因為那個 label
+#    從來沒有人去加。一個需要人類記得加 label 才會動的品質關卡，
+#    實際效果是零。要用就自動觸發。
+#
+# 想做 AI review 請走 04（diff → 一次 completion，實測單次約 $0.01）。
+# 想要確定性的檢查請走 01/02，那兩條不外送任何內容。
+#
+# ⚠️ 與 04 的差異：
+#   04 是「diff 文字 → 一次 completion」的輕量路線（便宜、快、無狀態）。
+#   05 是「agent 在 repo 裡走動、讀慣例、自己找證據」的重型路線（會多輪工具呼叫、較貴）。
+#   兩者可以並存：04 每次 PR 都跑，05 只在使用者要求時跑（例如加上 `review:deep` label）。
+#
+# ⚠️ 重要前提（請先讀完再啟用）：
+#   * DeepSeek Harness 目前是 **developer preview**，官方明示會有破壞性變更；
+#     這裡的版本號只是範例，**請務必 pin 到你自己驗證過的版本**。
+#   * 官方**沒有** GitHub Action，官方對 GitHub 的整合是 webhook overlay（不回貼 PR 留言）。
+#     這個 workflow 是直接用官方 CLI 的 headless 模式：`dsh --profile headless "task"`。
+#   * headless 模式**沒有互動審批通道**；在無人可審批的 CI 裡，
+#     需要寫入或執行的高風險工具會被 fail-closed 拒絕。
+#     本 workflow 的設計對策是：**讓 agent 保持唯讀，寫檔與貼留言全部交給 shell 與 gh**。
+#   * 因此這裡限制 **只跑同 repo 分支的 PR**（`head.repo == github.repository`），
+#     並且不 checkout 來自 fork 的程式碼。fork PR 請走 03/04 的資料路線。
+
+name: 05 dsh agent review
+
+on:
+  pull_request:
+    # labeled 是必要的：這個 workflow 只在加上 `review:deep` label 時才跑
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dsh-review:
+    name: dsh headless review
+    # 三重條件：非 draft、同 repo 分支、且帶有 deep review label
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'review:deep')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write # 貼留言用
+    env:
+      # DeepSeek API key：adapter 會直接從環境變數解析（ambient discovery），
+      # 不需要寫進任何設定檔
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      # 用 workspace 內的獨立 home，避免污染 runner 的 ~/.dsh
+      DSH_HOME: ${{ github.workspace }}/.dsh-home
+      # 任何非空值都會關閉遙測
+      DSH_TELEMETRY_DISABLED: '1'
+      # 版本請自己驗證後 pin。2026-09-17 查到的 dist-tags：
+      #   @deepseek-ai/dsh        latest=0.1.5-rc.1  next=0.1.5-rc.2  alpha=0.1.6-alpha.1
+      #   @deepseek-ai/dsh-agent  latest=0.1.0-rc.6  next=0.1.5-rc.2  alpha=0.1.6-alpha.1
+      # ⚠️ 兩者 dist-tag 不一致是正常的（monorepo 沒同步搬 tag），
+      #    只看一個數字會誤判。要穩定請用 CLI 套件的 latest。
+      # 查詢：npm view @deepseek-ai/dsh dist-tags
+      DSH_VERSION: '0.1.5-rc.1'
+      DEEPSEEK_MODEL: deepseek-v4-pro
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # dsh 需要 Node ^22.19.0 || >=24.0.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      # 首次 npx 抓取整棵依賴樹要好幾百 MB，一定要快取
+      - uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: dsh-npm-${{ env.DSH_VERSION }}-${{ runner.os }}
+
+      - name: 產生 diff
+        run: |
+          git diff --unified=3 \
+            "${{ github.event.pull_request.base.sha }}...${{ github.sha }}" > pr.diff
+          echo "diff bytes: $(wc -c < pr.diff)"
+
+      - name: 確認 dsh 可用
+        run: npx -y "@deepseek-ai/dsh@${DSH_VERSION}" --help
+
+      # 選配：用 profile patch 調整權限/模型（row id 請先跑一次
+      # `--profile headless --dump-default-config` 取得，再填進這個檔案）
+      - name: 套用 CI profile patch（若 repo 內有提供）
+        if: hashFiles('dsh/ci-profile.patch.yml') != ''
+        run: |
+          mkdir -p "$DSH_HOME/profiles/headless"
+          cp dsh/ci-profile.patch.yml "$DSH_HOME/profiles/headless/cordis.patch.yml"
+          npx -y "@deepseek-ai/dsh@${DSH_VERSION}" \
+            --profile headless --dump-config > dsh-composed-config.yml || true
+
+      # headless 模式的語意：
+      #   * 跑「一個」task，印出最後一則非空 assistant 訊息到 stdout 後結束
+      #   * exit 0 = 正常完成，1 = abort/error
+      #   * 省略位置參數時改用 stdin 讀 task
+      #   * 加 --json 會改成輸出 newline-delimited 事件流（方便程式解析）
+      # 這裡刻意不用 --json：我們要的就是最後那段 Markdown。
+      - name: dsh headless review（agent 唯讀；寫檔由 shell 負責）
+        run: |
+          npx -y "@deepseek-ai/dsh@${DSH_VERSION}" --profile headless \
+            "$(cat prompts/dsh-review-task.md)" > review.md 2> dsh-stderr.log
+          echo "--- review.md ---"
+          head -40 review.md
+          echo "--- stderr (last 40 lines) ---"
+          tail -40 dsh-stderr.log || true
+
+      - name: 貼回 PR（冪等：編輯自己上一則留言）
+        if: hashFiles('review.md') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo '<!-- dsh-review -->'
+            cat review.md
+            echo ''
+            echo "<sub>generated by dsh $DSH_VERSION / $DEEPSEEK_MODEL</sub>"
+          } > body.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --edit-last --create-if-none --body-file body.md
+
+      - name: 上傳除錯產出
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dsh-review-debug
+          path: |
+            review.md
+            dsh-stderr.log
+            dsh-composed-config.yml
+          retention-days: 7
+          if-no-files-found: ignore
