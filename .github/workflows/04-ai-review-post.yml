@@ -1,5 +1,8 @@
 # 04 — AI review 第二段：**受信任**、持有 secret
 #
+# ⭐ 2026-09-21 起這支改成 caller —— 實作在 reusable-ai-review-post.yml，
+#    本 repo 自己也走一般使用者的路徑（dogfood）。導入方式見 USAGE.md。
+#
 # 由 workflow_run 觸發。關鍵性質：
 #   * 執行的是「default branch 上的這份 workflow 檔」→ PR 無法修改它
 #   * 拿得到 secrets 與可寫的 GITHUB_TOKEN
@@ -9,97 +12,29 @@
 #
 # 需要的 repo secret：
 #   DEEPSEEK_API_KEY   （https://platform.deepseek.com/api_keys）
+#
+# ⚠️ 改成 caller 之後失去的一項能力：舊版可以打開 `environment: ai-review` 做
+#    「貼留言前人工核可」。caller 的 job 用 `uses:` 時不能同時設 `environment:`，
+#    而 reusable 版目前沒有對應的 input。需要人工核可就得改回內嵌實作，
+#    或替 reusable-ai-review-post.yml 補一個 environment input。
 
 name: 04 ai review post
 
 on:
   workflow_run:
-    workflows: ["03 ai review collect"]
+    workflows: ['03 ai review collect'] # ⚠️ 必須與 03 的 name: 完全一致
     types: [completed]
 
-permissions: {} # 先全關，job 內按需提升
+# ⚠️ 這段不能省：被呼叫的 workflow 拿不到超過呼叫方的權限。
+# 沒宣告就用 repo 預設（通常 read-only），reusable 裡要 write 會整個 startup_failure，
+# 而 actionlint 驗不出來、--log-failed 也是空的。
+permissions:
+  contents: read
+  pull-requests: write # 貼 review comment
+  actions: read # 下載上一段的 artifact
 
 jobs:
-  review:
-    # 只處理「由 pull_request 觸發且成功」的 run
-    if: >
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # 想在貼留言前人工核可，就打開下面這行並在 repo 設定 environment
-    # environment: ai-review
-    permissions:
-      actions: read # 下載觸發 run 的 artifact
-      contents: read # 讀本 workflow 的腳本（default branch）
-      pull-requests: write # 貼 review comment
-    concurrency:
-      group: ai-review-post-${{ github.event.workflow_run.head_branch }}
-      cancel-in-progress: true
-
-    steps:
-      # 取得「受信任」的腳本與 rubric：workflow_run 的預設 ref 就是 default branch
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: 下載不受信任 run 產生的 artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: ai-review-input
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: in
-
-      - name: 用受信任的 API 反查 PR 編號（不直接相信 artifact 內容）
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" \
-                --jq '.[0].number // empty')
-          if [ -z "$PR" ]; then
-            echo "找不到對應 PR，結束"; echo "number=" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          echo "number=$PR" >> "$GITHUB_OUTPUT"
-          echo "PR #$PR"
-
-      - name: DeepSeek review（唯一跨越信任邊界的是「資料」）
-        if: steps.pr.outputs.number != ''
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DEEPSEEK_MODEL: deepseek-v4-pro
-        run: |
-          python3 .github/scripts/deepseek_review.py \
-            --diff in/pr.diff \
-            --meta in/meta.json \
-            --rubric prompts/review-rubric.md \
-            --out review.md \
-            --findings-out findings.json
-
-      - name: 貼回 PR（摘要 + inline comments）
-        if: steps.pr.outputs.number != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python3 .github/scripts/post_review.py \
-            --repo "${{ github.repository }}" \
-            --pr "${{ steps.pr.outputs.number }}" \
-            --sha "${{ github.event.workflow_run.head_sha }}" \
-            --review review.md \
-            --findings findings.json \
-            --diff in/pr.diff \
-            --min-severity minor \
-            --min-confidence 0.7 \
-            --max-inline 8
-
-      # 讓失敗時也能看到產出，方便除錯（不會涵蓋任何 secret）
-      - name: 上傳 review 產出
-        if: always() && steps.pr.outputs.number != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: ai-review-output
-          path: |
-            review.md
-            findings.json
-          retention-days: 7
+  post:
+    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
+    secrets:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

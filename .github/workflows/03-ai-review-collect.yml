@@ -1,10 +1,14 @@
 # 03 — AI review 第一段：**不受信任**、零 secret
 #
+# ⭐ 2026-09-21 起這支改成 caller —— 實作在 reusable-ai-review-collect.yml，
+#    本 repo 自己也走一般使用者的路徑（dogfood）。導入方式見 USAGE.md。
+#
 # 這是 fork PR 安全架構的前半段。它只做「產生資料」：
 #   checkout → 產出 diff/metadata → 上傳 artifact
 # 完全不接觸任何 secret，所以即使 PR 來自 fork 也沒關係。
 #
 # 後半段（真正呼叫模型、貼留言）在 04-ai-review-post.yml，由 workflow_run 觸發。
+# ⚠️ 那支是靠**本檔的 name:** 來認人的，改名字要同步改 04。
 
 name: 03 ai review collect
 
@@ -16,81 +20,8 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ai-review-collect-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   collect:
-    if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: 產生 diff 與 metadata（只做資料處理，不執行 PR 的程式碼）
-        env:
-          # 攻擊者可控的值一律走環境變數，不要進 inline script 的展開路徑
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
-          PR_ADDITIONS: ${{ github.event.pull_request.additions }}
-          PR_DELETIONS: ${{ github.event.pull_request.deletions }}
-        run: |
-          mkdir -p out
-          BASE='${{ github.event.pull_request.base.sha }}'
-          git diff --unified=3 "$BASE"...HEAD > out/pr.diff || true
-
-          # 成本護欄：限制送進模型的資料量（模型是 1M context，但沒必要全送）
-          #
-          # ⚠️ 不要用 `head -c`：那是**位元組**截斷。2026-09-20 實測兩種損壞：
-          #   * 最後一個 hunk **必然**被切成半截（實測尾行只剩一個 `+`）
-          #   * UTF-8 字元有 **2/3 機率**被切斷（3-byte 中文，三種對齊裡兩種壞）
-          # 兩者都是把壞掉的輸入交給下游。這裡改在 `diff --git` 邊界切，
-          # 保留整數個檔案區塊——與 `deepseek_review.py` 的 `truncate()` 同一個判準。
-          python3 - <<'TRUNC'
-          import pathlib
-          LIMIT = 400_000
-          p = pathlib.Path('out/pr.diff')
-          raw = p.read_bytes()
-          if len(raw) > LIMIT:
-              cut = raw.rfind(b'\ndiff --git ', 0, LIMIT)
-              kept = raw[:cut + 1] if cut > 0 else raw[:LIMIT]
-              p.write_bytes(kept + b'\n[truncated] diff exceeded 400000 bytes\n')
-              print(f'[warn] diff {len(raw)} bytes -> {len(kept)} bytes (在檔案邊界截斷)')
-          TRUNC
-
-          # ⚠️ PR 標題與分支名是**攻擊者可控**的字串。
-          # 舊版用不帶引號的 heredoc（`<<EOF`）直接內插 toJSON() 的展開結果——
-          # toJSON 只做 JSON 跳脫，**擋不住 shell 的命令替換**：標題若是 `$(whoami)`，
-          # 展開後那段會在 heredoc 裡被執行。任何人開一個 PR 就能觸發。
-          # 改成「值走環境變數、JSON 由 Python 產生」，`<<'PY'` 帶引號所以完全不展開。
-          python3 - <<'PY'
-          import json, os
-          meta = {
-              "number": int(os.environ["PR_NUMBER"]),
-              "head_sha": os.environ["PR_HEAD_SHA"],
-              "base_ref": os.environ["PR_BASE_REF"],
-              "head_repo": os.environ["PR_HEAD_REPO"],
-              "title": os.environ["PR_TITLE"],
-              "changed_files": int(os.environ["PR_CHANGED_FILES"]),
-              "additions": int(os.environ["PR_ADDITIONS"]),
-              "deletions": int(os.environ["PR_DELETIONS"]),
-          }
-          with open("out/meta.json", "w", encoding="utf-8") as fh:
-              json.dump(meta, fh, ensure_ascii=False, indent=2)
-          PY
-
-          echo "diff bytes: $(wc -c < out/pr.diff)"
-          echo "changed files: $PR_CHANGED_FILES"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ai-review-input
-          path: out/
-          retention-days: 1
+    # 用 @v1 而不是 ./ 相對路徑：相對路徑會繞過跨 repo 的載入機制，
+    # 而本 repo 存在的意義之一就是驗證那條路徑對外部使用者可用。
+    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-collect.yml@v1
