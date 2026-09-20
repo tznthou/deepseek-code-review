@@ -1,0 +1,179 @@
+# 可重用版的 04 —— AI review 第二段：**受信任**、持有 secret。
+#
+# 給別的 repo 這樣引用（注意 workflows: 要填「你自己那支 collect workflow 的 name:」）：
+#
+#   on:
+#     workflow_run:
+#       workflows: ["ai review collect"]
+#       types: [completed]
+#   jobs:
+#     post:
+#       uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
+#       secrets:
+#         DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+#
+# 關鍵性質（與非 reusable 版相同）：
+#   * 由 workflow_run 觸發，執行的是 default branch 上的檔案 → PR 改不到它
+#   * **只下載 artifact（資料），永不 checkout fork 的 head**
+#
+# ⚠️ 2026-09-20 實測：reusable workflow 裡的 `actions/checkout` 抓到的是**呼叫方**的 repo，
+#    不是本 kit。所以腳本與 rubric 必須自己再 checkout 一次（下面第一步）。
+
+name: reusable ai review post
+
+on:
+  workflow_call:
+    inputs:
+      kit-ref:
+        description: 要用本 kit 的哪個版本。建議 pin tag 或 SHA，不要用 main
+        required: false
+        type: string
+        default: v1
+      rubric-path:
+        description: >
+          呼叫方 repo 裡的自訂 rubric 路徑（例如 .github/review-rubric.md）。
+          留空則用 kit 內建的通用 rubric。**實測客製 rubric 比換模型有效得多。**
+        required: false
+        type: string
+        default: ''
+      model:
+        description: DeepSeek 模型。只有 deepseek-v4-pro 與 deepseek-flash 是合法值
+        required: false
+        type: string
+        default: deepseek-v4-pro
+      min-severity:
+        required: false
+        type: string
+        default: minor
+      min-confidence:
+        required: false
+        type: number
+        default: 0.7
+      max-inline:
+        description: 最多貼幾則 inline comment，其餘降級進摘要
+        required: false
+        type: number
+        default: 8
+      artifact-name:
+        description: 要與 collect 段的 artifact-name 一致
+        required: false
+        type: string
+        default: ai-review-input
+    secrets:
+      DEEPSEEK_API_KEY:
+        description: https://platform.deepseek.com/api_keys —— 屬於呼叫方 repo，本 kit 拿不到
+        required: true
+
+permissions: {}
+
+jobs:
+  review:
+    # 只處理「由 pull_request 觸發且成功」的 run
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read # 下載觸發 run 的 artifact
+      contents: read
+      pull-requests: write # 貼 review comment
+    concurrency:
+      group: ai-review-post-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: true
+
+    steps:
+      # ⚠️ 這一步是 reusable 版本獨有的：reusable workflow 裡的 checkout 抓的是呼叫方 repo，
+      #    所以 deepseek_review.py / post_review.py / 內建 rubric 都得自己撈過來。
+      - name: 取得 kit（腳本與內建 rubric）
+        uses: actions/checkout@v7
+        with:
+          repository: tznthou/deepseek-code-review
+          ref: ${{ inputs.kit-ref }}
+          path: .kit
+          persist-credentials: false
+
+      # 只在指定了自訂 rubric 時才撈呼叫方的 repo。
+      # 注意 workflow_run 的預設 ref 是 default branch —— 撈到的是受信任的版本，不是 PR 的 head。
+      - name: 取得呼叫方的自訂 rubric
+        if: inputs.rubric-path != ''
+        uses: actions/checkout@v7
+        with:
+          path: .caller
+          persist-credentials: false
+
+      - name: 決定要用哪份 rubric
+        id: rubric
+        env:
+          CUSTOM: ${{ inputs.rubric-path }}
+        run: |
+          if [ -n "$CUSTOM" ] && [ -f ".caller/$CUSTOM" ]; then
+            echo "path=.caller/$CUSTOM" >> "$GITHUB_OUTPUT"
+            echo "使用呼叫方的自訂 rubric：$CUSTOM"
+          else
+            if [ -n "$CUSTOM" ]; then
+              echo "::warning::指定了 rubric-path=$CUSTOM 但檔案不存在，退回 kit 內建版本"
+            fi
+            echo "path=.kit/prompts/review-rubric.md" >> "$GITHUB_OUTPUT"
+            echo "使用 kit 內建 rubric"
+          fi
+
+      - name: 下載不受信任 run 產生的 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact-name }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: in
+
+      - name: 用受信任的 API 反查 PR 編號（不直接相信 artifact 內容）
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" \
+                --jq '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            echo "找不到對應 PR，結束"; echo "number=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR"
+
+      - name: DeepSeek review（唯一跨越信任邊界的是「資料」）
+        if: steps.pr.outputs.number != ''
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ inputs.model }}
+        run: |
+          python3 .kit/.github/scripts/deepseek_review.py \
+            --diff in/pr.diff \
+            --meta in/meta.json \
+            --rubric '${{ steps.rubric.outputs.path }}' \
+            --out review.md \
+            --findings-out findings.json
+
+      - name: 貼回 PR（摘要 + inline comments）
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .kit/.github/scripts/post_review.py \
+            --repo "${{ github.repository }}" \
+            --pr "${{ steps.pr.outputs.number }}" \
+            --sha "${{ github.event.workflow_run.head_sha }}" \
+            --review review.md \
+            --findings findings.json \
+            --diff in/pr.diff \
+            --min-severity '${{ inputs.min-severity }}' \
+            --min-confidence '${{ inputs.min-confidence }}' \
+            --max-inline '${{ inputs.max-inline }}'
+
+      - name: 上傳 review 產出（失敗時也能看，不含任何 secret）
+        if: always() && steps.pr.outputs.number != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-review-output
+          path: |
+            review.md
+            findings.json
+          retention-days: 7
