@@ -55,11 +55,11 @@
 
 ## 2. 依 repo 語言必改
 
-- [ ] **`02-codeql.yml:34`** — `language: [javascript-typescript]` 換成你們的語言
+- [ ] **`02-codeql.yml:34`** — `language: [python]` 換成你們的語言（本 repo 自己用的是 `python`）
   - 可用值：`javascript-typescript`、`python`、`go`、`java-kotlin`、`c-cpp`、`csharp`、`ruby`、`swift`…
   - 多語言就寫成 `[go, python]`（矩陣會平行跑）
 
-- [ ] **`02-codeql.yml:39`** — `build-mode: none` 的調整
+- [ ] **`02-codeql.yml:43`** — `build-mode: none` 的調整
   - 直譯式語言（JS/TS、Python、Ruby）：維持 `none`
   - 編譯式語言（Go/Java/C++/C#/Swift）：改成 `autobuild`，或改成手動 build 步驟
 
