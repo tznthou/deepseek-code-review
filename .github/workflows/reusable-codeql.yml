@@ -68,8 +68,9 @@ jobs:
           persist-credentials: false
 
       # reusable 裡的 checkout 抓的是呼叫方 repo，所以 kit 的 config 要自己撈。
+      # ⚠️ 無條件撈，不要加 `if: inputs.config-file == ''`：呼叫方指定的路徑可能不存在，
+      #    那時要能退回 kit 內建版本——而退回路徑需要 .kit 已經在手邊。
       - name: 取得 kit 的 CodeQL config
-        if: inputs.config-file == ''
         uses: actions/checkout@v7
         with:
           repository: tznthou/deepseek-code-review
@@ -82,10 +83,18 @@ jobs:
         env:
           CUSTOM: ${{ inputs.config-file }}
         run: |
-          if [ -n "$CUSTOM" ]; then
+          # 與 reusable-ai-review-post.yml 的 rubric 路徑同一個模式：
+          # 指定了但檔案不存在 → 出 warning 並退回內建版本，不要讓 CodeQL init
+          # 丟一個看不出原因的錯誤。
+          if [ -n "$CUSTOM" ] && [ -f "$CUSTOM" ]; then
             echo "path=$CUSTOM" >> "$GITHUB_OUTPUT"
+            echo "使用呼叫方的自訂 CodeQL config：$CUSTOM"
           else
+            if [ -n "$CUSTOM" ]; then
+              echo "::warning::指定了 config-file=$CUSTOM 但檔案不存在，退回 kit 內建版本"
+            fi
             echo "path=.kit/.github/codeql/codeql-config.yml" >> "$GITHUB_OUTPUT"
+            echo "使用 kit 內建 CodeQL config"
           fi
 
       - uses: github/codeql-action/init@v4
