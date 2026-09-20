@@ -31,6 +31,16 @@ jobs:
           persist-credentials: false
 
       - name: 產生 diff 與 metadata（只做資料處理，不執行 PR 的程式碼）
+        env:
+          # 攻擊者可控的值一律走環境變數，不要進 inline script 的展開路徑
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          PR_ADDITIONS: ${{ github.event.pull_request.additions }}
+          PR_DELETIONS: ${{ github.event.pull_request.deletions }}
         run: |
           mkdir -p out
           BASE='${{ github.event.pull_request.base.sha }}'
@@ -55,21 +65,29 @@ jobs:
               print(f'[warn] diff {len(raw)} bytes -> {len(kept)} bytes (在檔案邊界截斷)')
           TRUNC
 
-          cat > out/meta.json <<EOF
-          {
-            "number": ${{ github.event.pull_request.number }},
-            "head_sha": "${{ github.event.pull_request.head.sha }}",
-            "base_ref": ${{ toJSON(github.event.pull_request.base.ref) }},
-            "head_repo": ${{ toJSON(github.event.pull_request.head.repo.full_name) }},
-            "title": ${{ toJSON(github.event.pull_request.title) }},
-            "changed_files": ${{ github.event.pull_request.changed_files }},
-            "additions": ${{ github.event.pull_request.additions }},
-            "deletions": ${{ github.event.pull_request.deletions }}
+          # ⚠️ PR 標題與分支名是**攻擊者可控**的字串。
+          # 舊版用不帶引號的 heredoc（`<<EOF`）直接內插 toJSON() 的展開結果——
+          # toJSON 只做 JSON 跳脫，**擋不住 shell 的命令替換**：標題若是 `$(whoami)`，
+          # 展開後那段會在 heredoc 裡被執行。任何人開一個 PR 就能觸發。
+          # 改成「值走環境變數、JSON 由 Python 產生」，`<<'PY'` 帶引號所以完全不展開。
+          python3 - <<'PY'
+          import json, os
+          meta = {
+              "number": int(os.environ["PR_NUMBER"]),
+              "head_sha": os.environ["PR_HEAD_SHA"],
+              "base_ref": os.environ["PR_BASE_REF"],
+              "head_repo": os.environ["PR_HEAD_REPO"],
+              "title": os.environ["PR_TITLE"],
+              "changed_files": int(os.environ["PR_CHANGED_FILES"]),
+              "additions": int(os.environ["PR_ADDITIONS"]),
+              "deletions": int(os.environ["PR_DELETIONS"]),
           }
-          EOF
+          with open("out/meta.json", "w", encoding="utf-8") as fh:
+              json.dump(meta, fh, ensure_ascii=False, indent=2)
+          PY
 
           echo "diff bytes: $(wc -c < out/pr.diff)"
-          echo "changed files: ${{ github.event.pull_request.changed_files }}"
+          echo "changed files: $PR_CHANGED_FILES"
 
       - uses: actions/upload-artifact@v7
         with:
