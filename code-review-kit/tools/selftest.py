@@ -99,6 +99,32 @@ def main() -> int:
     selected = [f for f in candidates if f["line"] in valid.get(f["path"], set())]
     check("只留下合法行號", len(selected) == 1 and selected[0]["line"] == 12, selected)
 
+    print("[7] existing_inline_keys：gh 失敗要回 None，不能回空集合")
+    # 為什麼這條值得一個測試：前一版用 `gh(check=False)` 配 `except RuntimeError`，
+    # 而 check=False 失敗時只 log warning、不拋例外——那個 except 是死碼。
+    # 結果 gh 一失敗就回空集合，呼叫端讀成「一則都沒貼過」，每次 push 重貼一輪。
+    # 空集合與 None 必須是兩種語意：前者是「查到了，沒有」，後者是「查不到」。
+    original_gh = poster.gh
+    try:
+        poster.gh = lambda args, check=True: (_ for _ in ()).throw(
+            RuntimeError("gh api 失敗：HTTP 403")
+        )
+        check("gh 失敗回 None", poster.existing_inline_keys("o/r", "1") is None)
+
+        poster.gh = lambda args, check=True: ""
+        check(
+            "gh 成功但無結果回空集合",
+            poster.existing_inline_keys("o/r", "1") == set(),
+        )
+
+        poster.gh = lambda args, check=True: "src/a.ts:12\nsrc/b.ts:7\n"
+        check(
+            "gh 成功時正確解析 path:line",
+            poster.existing_inline_keys("o/r", "1") == {("src/a.ts", 12), ("src/b.ts", 7)},
+        )
+    finally:
+        poster.gh = original_gh
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")

@@ -37,7 +37,23 @@ jobs:
           git diff --unified=3 "$BASE"...HEAD > out/pr.diff || true
 
           # 成本護欄：限制送進模型的資料量（模型是 1M context，但沒必要全送）
-          head -c 400000 out/pr.diff > out/pr.diff.tmp && mv out/pr.diff.tmp out/pr.diff
+          #
+          # ⚠️ 不要用 `head -c`：那是**位元組**截斷。2026-09-20 實測兩種損壞：
+          #   * 最後一個 hunk **必然**被切成半截（實測尾行只剩一個 `+`）
+          #   * UTF-8 字元有 **2/3 機率**被切斷（3-byte 中文，三種對齊裡兩種壞）
+          # 兩者都是把壞掉的輸入交給下游。這裡改在 `diff --git` 邊界切，
+          # 保留整數個檔案區塊——與 `deepseek_review.py` 的 `truncate()` 同一個判準。
+          python3 - <<'TRUNC'
+          import pathlib
+          LIMIT = 400_000
+          p = pathlib.Path('out/pr.diff')
+          raw = p.read_bytes()
+          if len(raw) > LIMIT:
+              cut = raw.rfind(b'\ndiff --git ', 0, LIMIT)
+              kept = raw[:cut + 1] if cut > 0 else raw[:LIMIT]
+              p.write_bytes(kept + b'\n[truncated] diff exceeded 400000 bytes\n')
+              print(f'[warn] diff {len(raw)} bytes -> {len(kept)} bytes (在檔案邊界截斷)')
+          TRUNC
 
           cat > out/meta.json <<EOF
           {

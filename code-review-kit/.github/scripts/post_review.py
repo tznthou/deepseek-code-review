@@ -85,8 +85,17 @@ def parse_valid_lines(diff_text: str) -> dict[str, set[int]]:
     return valid
 
 
-def existing_inline_keys(repo: str, pr: str) -> set[tuple[str, int]]:
-    """抓出自己先前貼過的 inline comment，達成冪等。"""
+def existing_inline_keys(repo: str, pr: str) -> set[tuple[str, int]] | None:
+    """抓出自己先前貼過的 inline comment，達成冪等。
+
+    回傳 `None` 代表**查不到**（gh 失敗），與「查到了，一則都沒有」的空集合
+    是兩回事——呼叫端看到 None 必須跳過 inline 張貼。
+
+    ⚠️ 這裡刻意用 `check=True`。前一版是 `check=False` 配 `except RuntimeError`，
+    而 `gh(check=False)` 失敗時只 log warning 並回傳空 stdout、**不會拋例外**，
+    所以那個 except 是死碼：gh 一失敗就回空集合，呼叫端讀成「沒貼過」，
+    於是每次 push 都重複貼一輪 inline comment。失敗要看得見。
+    """
     try:
         out = gh(
             [
@@ -96,10 +105,11 @@ def existing_inline_keys(repo: str, pr: str) -> set[tuple[str, int]]:
                 "--jq",
                 f'.[] | select(.body | contains("{MARKER}")) | "\\(.path):\\(.line)"',
             ],
-            check=False,
+            check=True,
         )
-    except RuntimeError:
-        return set()
+    except RuntimeError as err:
+        log(f"[warn] 無法取得既有 inline comment：{err}")
+        return None
     keys: set[tuple[str, int]] = set()
     for line in out.splitlines():
         path, _, number = line.rpartition(":")
@@ -221,12 +231,17 @@ def main() -> int:
     # 2) inline comments（跳過已貼過的）
     already = existing_inline_keys(args.repo, args.pr) if args.diff else set()
     posted = 0
-    for f in selected:
-        if (f["path"], f["line"]) in already:
-            log(f"[info] 已存在，跳過 {f['path']}:{f['line']}")
-            continue
-        if post_inline(args.repo, args.pr, args.sha, f):
-            posted += 1
+    if already is None:
+        # 冪等性檢查失敗。寧可不貼也不要重複貼——摘要已經在上面貼了，
+        # 資訊不會遺失，而重複的 inline comment 得由人工一則一則刪。
+        log("[warn] 冪等性檢查失敗，本次跳過所有 inline comment（摘要不受影響）")
+    else:
+        for f in selected:
+            if (f["path"], f["line"]) in already:
+                log(f"[info] 已存在，跳過 {f['path']}:{f['line']}")
+                continue
+            if post_inline(args.repo, args.pr, args.sha, f):
+                posted += 1
 
     log(f"[info] 完成：inline {posted} 筆已張貼")
 
