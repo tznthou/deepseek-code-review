@@ -70,6 +70,17 @@
 
 ## 3. GitHub 端設定
 
+- [ ] **先啟用 Dependency graph** ⚠️ **不開的話下一條會把 PR 永久鎖死**
+  - 位置：Settings → Code security and analysis → **Dependency graph** → Enable
+  - 不做會怎樣：`01` 的 `dependency review` job **必定失敗**，錯誤訊息是
+    `Dependency review is not supported on this repository`
+  - **連鎖後果**：下一條要把 `dependency review` 設成 required status check——
+    一個必定失敗的 job 當 required，等於 **PR 永遠合不進去**
+  - 2026-09-20 本 repo 實測：新建的 public repo 這項**預設是關的**，
+    而且 `gh api -X PATCH ... security_and_analysis[dependency_graph]` 會被**靜默忽略**
+    （API 回 200、欄位不出現），只能從網頁開。重跑兩次確認不是初始化延遲：
+    attempt 2 失敗 → 網頁啟用 → attempt 3 三個 job 全綠
+
 - [ ] **把三個確定性檢查設為 required status check**
   - 位置：Settings → Branches / Rulesets → Require status checks to pass
   - 要勾的 job 名稱：`reviewdog (diff-only)`、`gitleaks`、`dependency review`
