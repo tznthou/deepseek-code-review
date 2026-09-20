@@ -39,6 +39,35 @@ Settings → Code security and analysis → **Dependency graph** → Enable
 
 沒有依賴清單的 repo 可以改成在下面的 caller 裡傳 `skip-dependency-review: true`。
 
+### 同時把 fork PR 的核可政策收緊 ⚠️ 這條關係到你的錢
+
+public repo + `pull_request` 自動觸發 + 掛著 `DEEPSEEK_API_KEY`
+= **外部的人開一個 PR 就會花到你的 DeepSeek 額度**。
+
+GitHub 的預設是 `first_time_contributors`（只擋首次貢獻者，之後就放行）。有 API key
+的 repo 建議收到最嚴格的一檔：
+
+```bash
+gh api --method PUT \
+  repos/<owner>/<repo>/actions/permissions/fork-pr-contributor-approval \
+  -f 'approval_policy=all_external_contributors'
+```
+
+三個可選值，由鬆到緊：`first_time_contributors_new_to_github`（只擋 GitHub 新帳號）、
+`first_time_contributors`（預設）、`all_external_contributors`（所有外部貢獻者每次都要核可）。
+
+查目前設定：
+
+```bash
+gh api repos/<owner>/<repo>/actions/permissions/fork-pr-contributor-approval \
+  --jq '.approval_policy'
+```
+
+> 對照：上面的 Dependency graph **只能從網頁開**（`gh api -X PATCH` 會被靜默忽略，
+> 回 200 但設定不變），而這條 fork 政策**可以用 API 設**。兩者不一樣，別一起猜。
+
+第二道保險是去 platform.deepseek.com 設消費上限。
+
 ## 第 3 步：放三個檔案
 
 ### `.github/workflows/code-review.yml`
