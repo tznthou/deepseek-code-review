@@ -52,6 +52,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# ⚠️ 這段不能省，理由見下面「三個最容易踩的坑」的第 4 點
+permissions:
+  contents: read
+  pull-requests: write # reviewdog / dependency-review 要貼留言
+  security-events: write # CodeQL / Trivy 要上傳 SARIF
+  actions: read
+  packages: read # CodeQL 抓 packs
+
 jobs:
   static:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-static-review.yml@v1
@@ -78,6 +86,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+permissions:
+  contents: read
+
 jobs:
   collect:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-collect.yml@v1
@@ -95,6 +106,11 @@ on:
     workflows: ["ai review collect"]   # ⚠️ 必須與上面那支的 name: 完全一致
     types: [completed]
 
+permissions:
+  contents: read
+  pull-requests: write # 貼 review comment
+  actions: read # 下載上一段的 artifact
+
 jobs:
   post:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
@@ -104,7 +120,7 @@ jobs:
 
 ---
 
-## 三個最容易踩的坑
+## 四個最容易踩的坑
 
 **1. `.github/` 一定要在 repo 根目錄。** GitHub Actions 只掃
 `<repo-root>/.github/workflows/`。放在子目錄下的 workflow **不會觸發、也不會報錯**，
@@ -116,6 +132,19 @@ jobs:
 
 **3. `workflows: ["ai review collect"]` 要填你自己那支的 `name:`，不是檔名。**
 兩邊不一致的症狀同樣是「第二段安靜地不動」。
+
+**4. caller 自己的 `permissions:` 不能省——省了會 `startup_failure`。**
+被呼叫的 workflow 拿不到超過呼叫方的權限。你的 caller 沒宣告時用的是 repo 預設
+（新 repo 通常是 read-only），而 reusable 裡的 job 要求 `pull-requests: write`、
+`security-events: write`，**超出上限就在啟動階段直接失敗，連一個 job 都不會出現**。
+
+這個失敗特別難查：`gh run view` 只說「This run likely failed because of a workflow
+file issue」，`--log-failed` 是空的，`actionlint` 也驗不出來——因為 workflow 檔案
+本身沒有任何語法問題。2026-09-20 實測，上面三份範本的 `permissions:` 區塊都是照這個
+踩出來的，照抄就不會遇到。
+
+> 對照組：只要 `contents: read` 的 `ai review collect` 在沒宣告 permissions 時
+> 照樣跑得動——**所以你可能會看到一部分 workflow 正常、一部分整個不啟動**。
 
 ---
 
