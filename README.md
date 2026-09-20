@@ -542,11 +542,18 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   當時的 agent session 拿不到 API key，後來補跑了。實測數據見 §4。
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
-* `python3 tools/selftest.py` 9 項全通過（新增 `--thinking` 後重跑仍全綠）。
+* `python3 tools/selftest.py` **7 組 15 項斷言全通過**（新增 `--thinking` 與 `[7]`
+  冪等性三條後重跑仍全綠）。
 * 所有 action 的版本 tag 與 inputs **2026-09-17 首驗、2026-09-19 複驗**，十項全數仍為最新
   （見 §2 版本對照表）。注意 `trivy-action` 的 tag **有 `v` 前綴**（`v0.36.0`，不是 `0.36.0`）。
   正式環境建議進一步 pin 到 commit SHA。
 * `.gitignore` 的攔截範圍以臨時 repo 實測（見 §2 步驟 1 的警告）。
+* **`02-codeql.yml` 在真實 GitHub Actions 上跑通**（2026-09-20，本 repo 自己）：
+  push 到 main 觸發，`Analyze (python)` 59s、`Trivy (filesystem)` 32s 兩個 job 全綠，
+  SARIF 確實進到 code scanning（CodeQL 與 Trivy 各一筆分析紀錄，本 repo 零告警）。
+  同時驗掉一個**不會報錯的失敗模式**：這套 kit 原本放在 `code-review-kit/` 子目錄下，
+  五個 workflow 的實際觸發次數是**零**——GitHub Actions 只掃 `<repo-root>/.github/workflows/`，
+  放錯位置既不觸發也不警告。詳見 §2 步驟 1 的警告。
 
 ### 未驗證
 
@@ -554,9 +561,10 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   （見下方「已知的不穩定」），所以「改了 X 之後結果變 Y」**證明不了 X 導致 Y**。
   這些表格裡唯一經過多次重複的是「缺測試那條幾乎不觸發」（10 次跑裡 8 次 0 筆）；
   其餘都只是單次觀察。要下因果結論，每個配置至少跑 3 次看分布——**那沒做**。
-* **沒有在真實 GitHub repo / PR 上跑過任何 workflow。** 未驗的是機制不是品質：
-  `workflow_run` 的觸發鏈、fork PR 的隔離路徑、inline comment 實際貼上 PR 的行為。
-  第一次上線請先用一個 fork PR 實測，確認收集段有跑、回報段有跑、而且 fork 真的拿不到 secret。
+* **fork PR 的隔離路徑沒有驗過。** `03`／`04` 兩段式架構的整個存在理由就是它，
+  但要驗需要第二個帳號或 organization 來開 fork PR——本 repo 是個人帳號，
+  GitHub 不允許 fork 自己的 repo 到同一帳號。導入到你的 repo 後請優先補這一條：
+  開一個 fork PR，確認收集段有跑、回報段有跑、而且 **fork 真的拿不到 secret**。
 * `05-dsh-agent-review.yml` 的 `dsh` 旗標（`--profile headless`、`--session-id`、`--json`，
   以及「省略位置參數則改讀 stdin」）來自官方 CLI README 與其原始碼，**未在本機執行驗證**。
   DeepSeek Harness 是 developer preview，官方明示會有破壞性變更——
