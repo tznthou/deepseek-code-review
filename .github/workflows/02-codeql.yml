@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript-typescript] # TODO: 換成你的語言
+        language: [python] # 導入到別的 repo 時換成你的語言
     steps:
       - uses: actions/checkout@v7
         with:

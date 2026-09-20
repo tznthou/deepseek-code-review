@@ -5,7 +5,7 @@
 #
 # 注意：本檔的 action 版本已於 2026-09-17 對照 GitHub API 驗證為當時最新，
 # 並確認用到的 inputs 仍存在。正式環境建議進一步 pin 到 commit SHA。
-# 版本對照表見 code-review-kit/README.md §2。
+# 版本對照表見 README.md §2。
 
 name: 01 static review
 

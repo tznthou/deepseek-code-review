@@ -1,15 +1,15 @@
-# 專案根目錄的 .gitignore。
+# kit 現在就跑在這個 repo 的根目錄（dogfood），所以這份要同時管兩件事：
+# 專案資料夾本身，以及 kit 執行時會產生的檔案。
 #
-# 為什麼有兩份：`code-review-kit/.gitignore` 是**要被複製到目標 repo** 的獨立單元
-# （README §2 步驟 1 教的是 `cat .gitignore >> <your-repo>/.gitignore`），
-# 所以它只寫 kit 自己會產生的東西。這一份管的是整個專案資料夾。
-# 子目錄的 .gitignore 只從它自己那層往下生效——2026-09-20 實測：
-# 少了這份，根目錄的 .DS_Store 會被 `git add -A` 直接收進去。
+# 2026-09-20 實測：少了這份，根目錄的 .DS_Store 會被 `git add -A` 直接收進去。
+# 導入到別的 repo 時，把下面這些規則附加進該 repo 的 .gitignore（README §2 步驟 1）。
 
 # ── macOS ──
 .DS_Store
 
-# ── 憑證：這個專案的 kit 需要 DEEPSEEK_API_KEY，別讓它落地 ──
+# ── 憑證：這個 kit 需要 DEEPSEEK_API_KEY，別讓它落地 ──
+# README 教的是 export，但實務上很多人會寫進 .env——2026-09-20 實測：
+# 不寫這幾條，`.env` 與 `*.key` 會被 git add -A 直接收進去。
 .env
 .env.*
 !.env.example
@@ -22,3 +22,15 @@
 # ── Python（tools/ 與 .github/scripts/ 是純標準庫腳本，但跑過就會留 cache）──
 __pycache__/
 *.py[cod]
+
+# ── 本機執行 kit 時可能產生的檔案（不要進版控）──
+# review-local.sh 預設寫在 /tmp，但手動改路徑時可能落在這裡
+pr.diff
+review.md
+findings.json
+dsh-stderr.log
+body.md
+dsh-composed-config.yml
+
+# dsh 的隔離 home（workflow 會設 DSH_HOME 到這裡）
+.dsh-home/

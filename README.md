@@ -23,14 +23,14 @@ $ ./review-local.sh origin/main
 ⚠️ **兩個預設值不改就不能用**：模型要用 `deepseek-v4-pro`、thinking 要關掉（理由見 §4）。
 kit 內都已經設好，但如果你從舊版複製過檔案，請對照 §4。
 
-研究報告請看同一目錄外的 `github-pr-cicd-code-review-research.md`。
+研究報告請看同一目錄的 `github-pr-cicd-code-review-research.md`。
 
 ---
 
 ## 1. 檔案總覽
 
 ```
-code-review-kit/
+deepseek-code-review/                        # repo 根目錄——kit 就跑在這裡（dogfood）
 ├── .github/
 │   ├── codeql/codeql-config.yml            # CodeQL 查詢設定（security-and-quality）
 │   ├── scripts/
@@ -49,7 +49,9 @@ code-review-kit/
 │   ├── selftest.py                         # 不需網路/API key 的自測
 │   └── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 ├── review-local.sh                         # 本機跑一次 review，不碰 GitHub
-└── README.md
+├── README.md
+├── SETUP-CHECKLIST.md                      # 導入到新 repo 的逐項檢查表
+└── github-pr-cicd-code-review-research.md  # 選型研究報告
 ```
 
 ---
@@ -58,18 +60,24 @@ code-review-kit/
 
 ### 步驟 1：複製檔案
 
+從這個 repo 的根目錄複製過去（`<kit>` 是你 clone 本 repo 的位置）：
+
 ```bash
-cp -r code-review-kit/.github  <your-repo>/
-cp -r code-review-kit/prompts  <your-repo>/
-cp -r code-review-kit/tools    <your-repo>/
-cp    code-review-kit/review-local.sh <your-repo>/
+cp -r <kit>/.github  <your-repo>/
+cp -r <kit>/prompts  <your-repo>/
+cp -r <kit>/tools    <your-repo>/
+cp    <kit>/review-local.sh <your-repo>/
 
 # .gitignore 用「附加」不要覆蓋——目標 repo 多半已經有自己的規則
-cat  code-review-kit/.gitignore >> <your-repo>/.gitignore
+cat  <kit>/.gitignore >> <your-repo>/.gitignore
 ```
 
 ⚠️ **最後那行別跳過。** 這個 kit 需要 `DEEPSEEK_API_KEY`，而 2026-09-20 實測：
 沒有這幾條規則時，`.env`、`*.key`、`.DS_Store`、`.claude/` 全都會被 `git add -A` 直接收進去。
+
+⚠️ **`.github/` 一定要落在目標 repo 的根目錄。** GitHub Actions 只掃
+`<repo-root>/.github/workflows/`，放在子目錄下的 workflow **不會被觸發、也不會報錯**——
+它就是安靜地什麼都不做。2026-09-20 本 repo 就是踩到這個才把 kit 從子目錄搬上來的。
 
 ### 步驟 2：設定 secret
 

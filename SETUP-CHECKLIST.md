@@ -1,6 +1,6 @@
 # 導入 Checklist — deepseek-code-review
 
-> 適用於 `code-review-kit/`。每一項都標了「檔案:行號」與「不做會怎樣」。
+> 把本 repo 根目錄的 kit 導入到你自己的 repo。每一項都標了「檔案:行號」與「不做會怎樣」。
 > 勾選方式：`- [ ]` → `- [x]`。
 
 ---
@@ -37,7 +37,7 @@
 
 - [ ] **把要複製的檔案放進 repo**
   ```bash
-  cd ~/Documents/deepseek-code-review/code-review-kit
+  cd ~/Documents/deepseek-code-review
   cp -R .github  /path/to/your-repo/
   cp -R prompts  /path/to/your-repo/
   cp -R tools    /path/to/your-repo/

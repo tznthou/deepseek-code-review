@@ -3,7 +3,7 @@
 > 研究日期：2026-09-17 ｜ 範圍：GitHub 原生 CI/CD 審查機制、主流工具地圖、
 > AI code review 的三條路線、以及 **DeepSeek Harness（`dsh`）能否做自動 code review**
 >
-> 配套可執行實作：同一 workspace 的 `code-review-kit/`（6 個 workflow + 2 支腳本 + rubric）
+> 配套可執行實作：本 repo 根目錄的 kit（5 個 workflow + 2 支腳本 + rubric）
 >
 > 標註慣例：✅ 已由官方來源查證 ｜ ⚠️ 推論或需複核 ｜ ❌ 查證後確認不成立
 
@@ -441,7 +441,7 @@ Hit 的條件是**完整匹配一個 cache prefix unit**。
 ```
 ┌─ Layer 1：確定性檢查（秒級、零 AI、可 required）──────────────────┐
 │  reviewdog（diff-only lint） + gitleaks + dependency-review        │
-│  → 對應 code-review-kit/.github/workflows/01-static-review.yml     │
+│  → 對應 .github/workflows/01-static-review.yml                     │
 ├─ Layer 2：靜態安全分析（分鐘級、零 AI）───────────────────────────┤
 │  CodeQL(security-and-quality) + Trivy → SARIF → code scanning      │
 │  → 02-codeql.yml                                                   │
