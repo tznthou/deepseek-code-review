@@ -554,6 +554,23 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   同時驗掉一個**不會報錯的失敗模式**：這套 kit 原本放在 `code-review-kit/` 子目錄下，
   五個 workflow 的實際觸發次數是**零**——GitHub Actions 只掃 `<repo-root>/.github/workflows/`，
   放錯位置既不觸發也不警告。詳見 §2 步驟 1 的警告。
+* **`01`／`03`／`04`／`05` 在真實 PR 上跑通**（2026-09-20，本 repo PR #1）：
+  * **`03` → `04` 的 `workflow_run` 觸發鏈成立**——整個 fork-safe 架構就靠這條：
+    `03` 完成後 `04` 自動觸發、下載 artifact、拿得到 secret。
+  * `04` 呼叫 `deepseek-v4-pro`（prompt 2,497 tokens／cache hit 1,280、completion 586），
+    摘要貼成 PR review，**inline comment 實際貼上 `README.md:550`**。
+  * `post_review.py` 的行號過濾在真實環境生效：2 筆 finding 只有 1 筆進 inline，
+    另一筆因行號不在 diff 內**降級進摘要並註明理由**，沒有亂貼。
+  * `01` 的 `reviewdog`／`gitleaks` 兩個 job 綠。`dependency review` 第一次**失敗**，
+    根因是 repo 的 **Dependency graph 預設沒開**——啟用後重跑三個 job 全綠
+    （紅綠對照：attempt 2 失敗 → 啟用 → attempt 3 成功）。導入時這是必踩的坑，
+    而且它跟 required check 有連鎖後果，見 SETUP-CHECKLIST §3 第一條。
+  * `05` 如預期 skip（沒有 `review:deep` label）。
+* **那次 review 的 2 筆 finding 品質**（單次觀察，不是統計結論）：1 筆成立、1 筆不成立。
+  不成立那筆宣稱「workflow 放錯位置是先前已知的陷阱」——事實相反，那是本次才踩出來的。
+  **位置對、推論錯、語氣篤定**，與 §4 記錄的模式一致。成立那筆抓到 fork PR 驗證的
+  語氣被弱化，已採納修回。附帶觀察：**成立的那筆因行號不在 diff 內被降級、沒貼成 inline；
+  不成立的那筆反而貼上去了**——過濾機制擋的是行號不是品質，兩者無關。
 
 ### 未驗證
 
@@ -563,8 +580,9 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   其餘都只是單次觀察。要下因果結論，每個配置至少跑 3 次看分布——**那沒做**。
 * **fork PR 的隔離路徑沒有驗過。** `03`／`04` 兩段式架構的整個存在理由就是它，
   但要驗需要第二個帳號或 organization 來開 fork PR——本 repo 是個人帳號，
-  GitHub 不允許 fork 自己的 repo 到同一帳號。導入到你的 repo 後請優先補這一條：
+  GitHub 不允許 fork 自己的 repo 到同一帳號。**導入後務必立即補驗這一條**：
   開一個 fork PR，確認收集段有跑、回報段有跑、而且 **fork 真的拿不到 secret**。
+  在驗過之前，不要把這套裝到會收外部 PR 的 repo 上。
 * `05-dsh-agent-review.yml` 的 `dsh` 旗標（`--profile headless`、`--session-id`、`--json`，
   以及「省略位置參數則改讀 stdin」）來自官方 CLI README 與其原始碼，**未在本機執行驗證**。
   DeepSeek Harness 是 developer preview，官方明示會有破壞性變更——
