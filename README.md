@@ -571,6 +571,14 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   **位置對、推論錯、語氣篤定**，與 §4 記錄的模式一致。成立那筆抓到 fork PR 驗證的
   語氣被弱化，已採納修回。附帶觀察：**成立的那筆因行號不在 diff 內被降級、沒貼成 inline；
   不成立的那筆反而貼上去了**——過濾機制擋的是行號不是品質，兩者無關。
+* **本 repo 自己的 `03`／`04` 已改用 reusable workflow**（2026-09-21，引用 `@v1`）。
+  這不只是整理，它是這套 kit 唯一能驗證「對外部使用者是否可用」的方式——**第一天就抓到
+  一個只有 reusable 版才會出現的 bug**：`post_review.py` 的 `gh pr review` 沒帶 `--repo`，
+  而 `gh pr` 子命令靠當前目錄的 git remote 推斷 repo。舊版把 caller repo checkout 到
+  工作目錄根所以能用，reusable 版只把 kit 放到 `.kit` 子目錄，根目錄沒有 git repo。
+  加上 `gh()` 的 `check=False` 吞掉錯誤，症狀是**所有 step success、`review.md` 內容完整、
+  PR 上一則留言都沒有**。已於 `v1.0.2` 修正，並把 `gh` 失敗改用 `::warning::` 輸出。
+  舊版 `04` 跑了三個 PR 都正常——**不做 dogfood 這個 bug 會留在 `v1` 裡等別人踩**。
 
 ### 未驗證
 
