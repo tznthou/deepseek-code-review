@@ -66,7 +66,20 @@ gh api repos/<owner>/<repo>/actions/permissions/fork-pr-contributor-approval \
 > 對照：上面的 Dependency graph **只能從網頁開**（`gh api -X PATCH` 會被靜默忽略，
 > 回 200 但設定不變），而這條 fork 政策**可以用 API 設**。兩者不一樣，別一起猜。
 
-第二道保險是去 platform.deepseek.com 設消費上限。
+**第二道保險：DeepSeek 是預付制，餘額就是上限。**
+
+平台上沒有「消費上限」這種設定，因為不需要——費用直接從你充值的餘額扣，
+**扣完就停，不會產生欠款**。所以控制風險的方式是「不要一次充太多」，
+小額多次比設一個上限更硬。
+
+查目前餘額：
+
+```bash
+curl -s https://api.deepseek.com/user/balance \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY"
+```
+
+單次 review 實測約 $0.01，所以就算被灌爆，燒掉的上限也就是你當下的餘額。
 
 ## 第 3 步：放三個檔案
 
