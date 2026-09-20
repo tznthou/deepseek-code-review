@@ -42,7 +42,10 @@ def gh(args: list[str], check: bool = True) -> str:
     if proc.returncode != 0 and check:
         raise RuntimeError(f"gh {' '.join(args[:3])}… 失敗：{proc.stderr.strip()[:400]}")
     if proc.returncode != 0:
-        log(f"[warn] gh 失敗（已忽略）：{proc.stderr.strip()[:200]}")
+        # 用 ::warning:: 讓 GitHub Actions 把它標在 job summary 上。
+        # 2026-09-21 踩過：只印 `[warn]` 到 stdout 的話，貼留言整個失敗也看不出來——
+        # job 照樣 success、還印「完成」，要翻 log 才發現一則都沒貼。
+        log(f"::warning::gh {' '.join(args[:3])} 失敗（已忽略）：{proc.stderr.strip()[:200]}")
     return proc.stdout
 
 
@@ -223,10 +226,16 @@ def main() -> int:
 
     has_blocker = any(f["severity"] == "blocker" for f in selected)
     review_body_path = "/tmp/deepseek-review-body.md"
-    if args.request_changes_on_blocker and has_blocker:
-        gh(["pr", "review", args.pr, "--request-changes", "--body-file", review_body_path], check=False)
-    else:
-        gh(["pr", "review", args.pr, "--comment", "--body-file", review_body_path], check=False)
+    # ⚠️ `--repo` 不能省。`gh pr` 子命令靠**當前目錄的 git remote** 推斷 repo，
+    # 而這支腳本不保證跑在目標 repo 的工作目錄裡——走 reusable workflow 時，
+    # kit 被 checkout 到 `.kit` 子目錄，工作目錄根**沒有 git repo**。
+    # 2026-09-21 實測：少了 --repo 會 `fatal: not a git repository`，
+    # 而 check=False 把它吞掉 → 摘要一則都沒貼，job 卻回報 success。
+    verdict_flag = "--request-changes" if (args.request_changes_on_blocker and has_blocker) else "--comment"
+    gh(
+        ["pr", "review", args.pr, "--repo", args.repo, verdict_flag, "--body-file", review_body_path],
+        check=False,
+    )
 
     # 2) inline comments（跳過已貼過的）
     already = existing_inline_keys(args.repo, args.pr) if args.diff else set()

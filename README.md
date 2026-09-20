@@ -594,3 +594,21 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 * **輸出有變異性**：同一份 diff、同樣 `temperature 0.2`，兩次跑出的 findings 不一樣；
   第二次還冒出第一次沒有的問題。**「跑一次沒報」不等於「沒問題」**，也不要把它當可重現的閘門。
 * 模型價格隨官方調整，估算請以 https://api-docs.deepseek.com/quick_start/pricing 為準。
+
+### 每次貼留言會多出一筆「空的」review —— 那是刻意的取捨
+
+PR 的 timeline 上會看到 `github-actions bot reviewed` 出現兩次，其中一次**點進去沒有內容**。
+這不是壞掉，是為了冪等性付的代價。
+
+GitHub 貼 PR review comment 有兩條路，而它們是互斥的：
+
+| 做法 | 冪等性 | 副作用 |
+|---|---|---|
+| `POST /pulls/{n}/reviews` 帶 `comments` 陣列 | **做不到**——一次性提交整個 review，沒有逐筆比對的機會 | 乾淨，一筆 review |
+| `POST /pulls/{n}/comments` 逐筆貼 | **做得到**——貼之前先撈現有 comment 的 `(path, line)` 跳過已貼 | GitHub 把每筆包進一個隱含的、`body` 為空的 review |
+
+`post_review.py` 走第二條。**重複貼留言是真 bug**（每次 push 洗版一次，PR 會被淹沒），
+而空 review 只是 timeline 上的視覺雜訊——這個取捨很清楚。
+
+2026-09-20 的實測證明冪等性真的在運作：第二輪 DeepSeek **重報了同一個位置**，
+而那筆 inline comment 沒有被貼第二次。不是「它沒再報」，是「它再報了但被擋住」。

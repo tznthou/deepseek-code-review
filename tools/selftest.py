@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -124,6 +125,20 @@ def main() -> int:
         )
     finally:
         poster.gh = original_gh
+
+    print("[8] 貼摘要的 `gh pr review` 必須帶 --repo")
+    # 為什麼值得一個測試：`gh pr` 子命令靠**當前目錄的 git remote** 推斷 repo。
+    # 走 reusable workflow 時 kit 被 checkout 到 `.kit` 子目錄，工作目錄根沒有 git repo，
+    # 少了 --repo 就會 `fatal: not a git repository`——而 check=False 把它吞掉，
+    # 結果是摘要一則都沒貼、job 卻回報 success（2026-09-21 在 PR #5 實際踩到）。
+    #
+    # ⚠️ 這是**靜態檢查**不是行為測試：它只確認呼叫參數裡有 --repo，
+    # 擋的是「有人重構時把它拿掉」這種回歸，擋不了 args.repo 傳錯值。
+    src = (ROOT / ".github/scripts/post_review.py").read_text(encoding="utf-8")
+    m = re.search(r'\[\s*"pr",\s*"review".*?\]', src, re.S)
+    check("原始碼中找得到 gh pr review 的呼叫", m is not None)
+    if m:
+        check("該呼叫帶 --repo", '"--repo"' in m.group(0), m.group(0)[:120])
 
     print()
     if failures:
