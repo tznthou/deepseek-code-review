@@ -1,0 +1,125 @@
+# 可重用版的 02 —— CodeQL 靜態安全分析（SAST）+ Trivy，結果以 SARIF 進 code scanning
+#
+#   jobs:
+#     codeql:
+#       uses: tznthou/deepseek-code-review/.github/workflows/reusable-codeql.yml@v1
+#       with:
+#         languages: '["python", "javascript-typescript"]'
+#
+# ⚠️ languages 是 **JSON 陣列字串**（workflow_call 的 inputs 沒有 array 型別，
+#    要用 fromJSON 轉回矩陣）。單一語言也要寫成 '["python"]'。
+#
+# 與 reusable-static-review 的分工：那支是「風格/機密/依賴」，這支是「程式碼層級的資料流分析」。
+
+name: reusable codeql
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: 'CodeQL 語言的 JSON 陣列字串，例：''["python"]''。可用值見 CodeQL 文件'
+        required: true
+        type: string
+      build-mode:
+        description: 直譯式語言用 none；編譯式語言（Go/Java/C++/C#/Swift）改 autobuild
+        required: false
+        type: string
+        default: none
+      kit-ref:
+        description: 要用本 kit 哪個版本的 codeql-config.yml
+        required: false
+        type: string
+        default: v1
+      config-file:
+        description: >
+          呼叫方 repo 裡的自訂 CodeQL config 路徑。留空則用 kit 內建的
+          （security-and-quality suite）。
+        required: false
+        type: string
+        default: ''
+      skip-trivy:
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  security-events: write
+  packages: read
+  actions: read
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(inputs.languages) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # reusable 裡的 checkout 抓的是呼叫方 repo，所以 kit 的 config 要自己撈。
+      - name: 取得 kit 的 CodeQL config
+        if: inputs.config-file == ''
+        uses: actions/checkout@v7
+        with:
+          repository: tznthou/deepseek-code-review
+          ref: ${{ inputs.kit-ref }}
+          path: .kit
+          persist-credentials: false
+
+      - name: 決定 config 路徑
+        id: cfg
+        env:
+          CUSTOM: ${{ inputs.config-file }}
+        run: |
+          if [ -n "$CUSTOM" ]; then
+            echo "path=$CUSTOM" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=.kit/.github/codeql/codeql-config.yml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ inputs.build-mode }}
+          config-file: ${{ steps.cfg.outputs.path }}
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:${{ matrix.language }}'
+
+  trivy:
+    name: Trivy (filesystem)
+    if: inputs.skip-trivy == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@v0.36.0 # ⚠️ tag 有 v 前綴
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs

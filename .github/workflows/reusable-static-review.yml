@@ -1,0 +1,138 @@
+# 可重用版的 01 —— 靜態審查（不花 AI token，最便宜的閘門）
+#
+#   jobs:
+#     static:
+#       uses: tznthou/deepseek-code-review/.github/workflows/reusable-static-review.yml@v1
+#       with:
+#         lint-command: shellcheck -f gcc $(git ls-files '*.sh')
+#         lint-name: shellcheck
+#
+# 三個 job 的分工：
+#   * reviewdog —— **只在有傳 lint-command 時才跑**。linter 是每個 repo 自己的事，
+#     這裡不猜；沒傳就整個 job 跳過。
+#   * gitleaks —— 零設定，通用。
+#   * dependency review —— 零設定，但 ⚠️ **repo 必須先啟用 Dependency graph**，
+#     否則必定失敗（Settings → Code security and analysis）。沒有依賴清單的 repo
+#     可以傳 skip-dependency-review: true。
+
+name: reusable static review
+
+on:
+  workflow_call:
+    inputs:
+      lint-command:
+        description: >
+          linter 指令，輸出要符合 lint-errorformat。留空則不跑 reviewdog。
+          例：shellcheck -f gcc $(git ls-files '*.sh')
+        required: false
+        type: string
+        default: ''
+      lint-name:
+        description: reviewdog 在 PR 上顯示的名稱
+        required: false
+        type: string
+        default: lint
+      lint-errorformat:
+        required: false
+        type: string
+        default: '%f:%l:%c: %m'
+      fail-level:
+        description: reviewdog 什麼等級才讓 job 失敗（none / any / info / warning / error）
+        required: false
+        type: string
+        default: error
+      skip-dependency-review:
+        description: repo 沒有依賴清單、或還沒啟用 Dependency graph 時設 true
+        required: false
+        type: boolean
+        default: false
+      dependency-fail-on-severity:
+        required: false
+        type: string
+        default: high
+      skip-draft:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      GITLEAKS_LICENSE:
+        description: 只有組織帳號需要，個人 repo 不用傳
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  reviewdog:
+    name: reviewdog (diff-only)
+    if: >
+      inputs.lint-command != '' &&
+      (inputs.skip-draft == false || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest
+
+      - name: Run linter
+        env:
+          LINT_COMMAND: ${{ inputs.lint-command }}
+        run: |
+          mkdir -p out
+          # 失敗不中斷：linter 找到問題是正常的，交給 reviewdog 判斷嚴重度
+          bash -c "$LINT_COMMAND" > out/lint.txt 2>&1 || true
+          head -30 out/lint.txt || true
+
+      - name: Post findings on changed lines only
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          reviewdog \
+            -efm='${{ inputs.lint-errorformat }}' \
+            -name='${{ inputs.lint-name }}' \
+            -reporter=github-pr-review \
+            -filter-mode=added \
+            -fail-level='${{ inputs.fail-level }}' \
+            -tee < out/lint.txt
+
+  gitleaks:
+    name: gitleaks
+    if: inputs.skip-draft == false || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks 需要完整歷史才能比對
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  dependency-review:
+    name: dependency review
+    if: >
+      inputs.skip-dependency-review == false &&
+      (inputs.skip-draft == false || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: ${{ inputs.dependency-fail-on-severity }}
+          comment-summary-in-pr: on-failure

@@ -1,0 +1,94 @@
+# 可重用版的 03 —— AI review 第一段：**不受信任**、零 secret。
+#
+# 給別的 repo 這樣引用：
+#
+#   jobs:
+#     collect:
+#       uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-collect.yml@v1
+#
+# 這一段只做「產生資料」：checkout → 產出 diff/metadata → 上傳 artifact。
+# 完全不接觸任何 secret，所以 fork PR 也安全。
+# 真正呼叫模型、貼留言的是 reusable-ai-review-post.yml，由 workflow_run 觸發。
+#
+# 注意：這支**不需要** checkout 本 kit —— 它用的全是呼叫方 repo 自己的資料。
+
+name: reusable ai review collect
+
+on:
+  workflow_call:
+    inputs:
+      max-diff-bytes:
+        description: 送進模型的 diff 上限（在檔案邊界截斷，不會切半個 hunk）
+        required: false
+        type: number
+        default: 400000
+      skip-draft:
+        description: draft PR 是否跳過
+        required: false
+        type: boolean
+        default: true
+      artifact-name:
+        description: artifact 名稱。改了的話 post 段要傳一樣的值
+        required: false
+        type: string
+        default: ai-review-input
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    if: inputs.skip-draft == false || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 產生 diff 與 metadata（只做資料處理，不執行 PR 的程式碼）
+        env:
+          LIMIT: ${{ inputs.max-diff-bytes }}
+        run: |
+          mkdir -p out
+          BASE='${{ github.event.pull_request.base.sha }}'
+          git diff --unified=3 "$BASE"...HEAD > out/pr.diff || true
+
+          # 成本護欄。⚠️ 不要用 `head -c`：那是**位元組**截斷，2026-09-20 實測兩種損壞：
+          #   * 最後一個 hunk 必然被切成半截
+          #   * UTF-8 字元有 2/3 機率被切斷（3-byte 中文，三種對齊裡兩種壞）
+          # 這裡在 `diff --git` 邊界切，保留整數個檔案區塊。
+          python3 - <<'TRUNC'
+          import os, pathlib
+          LIMIT = int(os.environ['LIMIT'])
+          p = pathlib.Path('out/pr.diff')
+          raw = p.read_bytes()
+          if len(raw) > LIMIT:
+              cut = raw.rfind(b'\ndiff --git ', 0, LIMIT)
+              kept = raw[:cut + 1] if cut > 0 else raw[:LIMIT]
+              p.write_bytes(kept + b'\n[truncated] diff exceeded %d bytes\n' % LIMIT)
+              print(f'[warn] diff {len(raw)} bytes -> {len(kept)} bytes (在檔案邊界截斷)')
+          TRUNC
+
+          cat > out/meta.json <<EOF
+          {
+            "number": ${{ github.event.pull_request.number }},
+            "head_sha": "${{ github.event.pull_request.head.sha }}",
+            "base_ref": ${{ toJSON(github.event.pull_request.base.ref) }},
+            "head_repo": ${{ toJSON(github.event.pull_request.head.repo.full_name) }},
+            "title": ${{ toJSON(github.event.pull_request.title) }},
+            "changed_files": ${{ github.event.pull_request.changed_files }},
+            "additions": ${{ github.event.pull_request.additions }},
+            "deletions": ${{ github.event.pull_request.deletions }}
+          }
+          EOF
+
+          echo "diff bytes: $(wc -c < out/pr.diff)"
+          echo "changed files: ${{ github.event.pull_request.changed_files }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: out/
+          retention-days: 1
