@@ -35,15 +35,24 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   ├── codeql/codeql-config.yml            # CodeQL 查詢設定（security-and-quality）
 │   ├── scripts/
 │   │   ├── deepseek_review.py              # diff → DeepSeek → review.md + findings.json（純標準庫）
+│   │   ├── locate.py                       # 行號由片段文字比對算出，不信模型自報的（見 §8）
 │   │   └── post_review.py                  # 驗證行號 → 冪等貼回 PR（摘要 + inline comments）
 │   └── workflows/
-│       ├── 01-static-review.yml            # reviewdog + gitleaks + dependency-review（不花 token）
+│       ├── 01-static-review.yml            # ↓ 這五支是本 repo 自己的 caller（dogfood）
 │       ├── 02-codeql.yml                   # CodeQL SAST + Trivy → SARIF → code scanning
 │       ├── 03-ai-review-collect.yml        # 不受信任段：只產 diff artifact，零 secret
 │       ├── 04-ai-review-post.yml           # 受信任段：workflow_run 觸發，呼叫模型並貼留言
-│       └── 05-dsh-agent-review.yml         # ⛔ 評估紀錄，不建議採用（見 §4.6）
+│       ├── 05-dsh-agent-review.yml         # ⛔ 評估紀錄，不建議採用（見 §4.6）
+│       ├── reusable-static-review.yml      # ↓ 這四支是給別的 repo 引用的實作（USAGE.md）
+│       ├── reusable-codeql.yml             #   別人的 caller 用 @v1 指過來，不必複製腳本
+│       ├── reusable-ai-review-collect.yml  #
+│       └── reusable-ai-review-post.yml     #
 ├── prompts/
 │   ├── review-rubric.md                    # 04 用的 review playbook（system prompt）
+│   ├── review-filter.md                    # 第二次呼叫用：只刪 diff 能當場證偽的 finding
+│   ├── rules/                              # 依 diff 的檔案型態附加的補充規則
+│   │   ├── github-workflows.md             #   幾乎每條都是這個 repo 自己踩過的坑
+│   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
 │   ├── selftest.py                         # 不需網路/API key 的自測
@@ -560,6 +569,15 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   * ⚠️ 第一次測量的結果是「16 筆行號 100% 落在合法範圍」，看起來沒問題；
     但那只量到「GitHub API 會不會回 422」，跟「指的對不對」是兩件事。
     **可貼 ≠ 指對**——這個陷阱值得記住。
+  * **2026-09-21 真實環境的第一組資料**（v1.1.0 發布後，PR #10）：模型確實填了
+    `existing_code` 且內容逐字正確；兩筆 finding 被重新定位（各偏移 +3 行）。
+    ⚠️ **但其中一筆是定位層自己改錯的**——模型原本報對了，是我們把它改壞。
+    根因：`existing_code` 是整段逐字程式碼，而程式碼的 docstring 裡含有 markdown
+    反引號是完全正常的；舊版把它跟散文欄位走同一條路徑，看到反引號就去挖裡面的
+    內容當片段，於是命中了 docstring 裡提到那個名字的那一行。
+    判斷「這是程式碼還是散文」不能靠內容猜，要靠**它來自哪個欄位**。已修
+    （`literal_snippets` 與 `extract_snippets` 分開），並用那兩筆真實 finding
+    做過紅綠對照：修正前 1/2 正確，修正後 2/2 正確。
 * 所有 action 的版本 tag 與 inputs **2026-09-17 首驗、2026-09-19 複驗**，十項全數仍為最新
   （見 §2 版本對照表）。注意 `trivy-action` 的 tag **有 `v` 前綴**（`v0.36.0`，不是 `0.36.0`）。
   正式環境建議進一步 pin 到 commit SHA。
@@ -619,9 +637,23 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   規則確實依檔案型態被挑中（測項 `[11]`），以及**補充規則走 user message、
   system prompt 逐字不變**——三種 diff 型態下 system prompt 都是同樣的 2,886 字元，
   這是 context caching 命中的前提。
-  ⚠️ 但**實際 cache 命中率沒有量過**。要驗的話看真實跑的 `prompt_cache_hit_tokens`：
-  歷史基準是 **1,280**（`prompt_tokens` 約 2,500–10,300 時），若這個數字在啟用
-  `typed-rules` 後仍維持 1,280，表示規則放 user message 的設計成立。
+  ✅ **`typed-rules` 已在真實環境驗過**（2026-09-21，PR #10 第二次跑）：diff 含 `.py`
+  檔案時 log 出現 `套用補充規則：python.md`，純 markdown 的 diff 則不附加任何規則。
+
+  ✅ **改 rubric 造成的 cache 下降是重建過渡，不是結構性損失。** 實測五次
+  `prompt_cache_hit_tokens`：
+
+  | rubric | 第 1 次 | 第 2 次 | 第 3 次 |
+  |---|---|---|---|
+  | 舊（80 行） | 1,280 | 1,280 | — |
+  | v1.1.0（89 行） | **640** | **1,024** | **1,408** |
+
+  舊 rubric 的命中數不隨 diff 大小變動（`prompt_tokens` 從 1,932 到 10,301 都是 1,280）。
+  新 rubric 第三次已超過舊值，符合「rubric 變長、可快取的前綴也變長」的預期。
+  DeepSeek 的 cache 是前綴比對，改動之後需要幾次請求重新建立。
+* **`filter-findings` 每次都是完整的 cache miss。** 它用的是另一份 system prompt
+  （`review-filter.md`），實測 `prompt_cache_hit_tokens: 0`。這是它的額外成本裡
+  容易被忽略的一塊：不只是多一次呼叫，而是多一次**沒有 cache 折扣**的呼叫。
 * **rubric 新增的 `existing_code` 欄位還沒跑過真實 API。** 上面那組定位實驗用的是
   既有的 `evidence` 欄位當替身——那個欄位本來不是設計來定位的，只是剛好常夾帶
   程式碼引用。專用欄位的片段品質應該更好，但**那是推測，沒驗**。

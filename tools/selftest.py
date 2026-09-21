@@ -191,6 +191,37 @@ def main() -> int:
     # 太短的片段不拿來定位（`}`、`fi` 這類到處都命中）。
     check("過短的片段被忽略", locator.extract_snippets("`fi`", "`}`") == [], locator.extract_snippets("`fi`", "`}`"))
 
+    # ⚠️ 紅綠對照：existing_code 是整段程式碼，而程式碼的 docstring／註解裡含反引號
+    # 是完全正常的。舊版把 existing_code 與 evidence 走同一條路徑，看到反引號就去挖
+    # 裡面的內容當片段 → 拿 `helper.func` 比對，命中了 docstring 裡提到它的那一行，
+    # 而不是這段程式碼的開頭。2026-09-21 在真實 PR 上實際錯位 3 行。
+    backtick_diff = (
+        "diff --git a/m.py b/m.py\n--- a/m.py\n+++ b/m.py\n@@ -1,0 +1,5 @@\n"
+        "+def normalize_ws(text):\n"
+        '+    """壓縮空白。\n'
+        "+\n"
+        "+    公開的原因：`helper.func` 驗證時要用同一套正規化。\n"
+        '+    """\n'
+    )
+    bt_index = locator.index_diff(backtick_diff)
+    code_with_backticks = (
+        'def normalize_ws(text):\n    """壓縮空白。\n\n    公開的原因：`helper.func` 驗證時要用同一套正規化。\n    """'
+    )
+    check(
+        "literal_snippets 不挖反引號，整段當一個片段",
+        locator.literal_snippets(code_with_backticks) == [code_with_backticks],
+        locator.literal_snippets(code_with_backticks),
+    )
+    bt_finding = {"path": "m.py", "line": 1, "existing_code": code_with_backticks}
+    line, how = locator.resolve_line(bt_finding, bt_index)
+    check("含反引號的整段程式碼定位到它的第一行", line == 1, f"{line} / {how}")
+    # 對照組：同樣內容放在 evidence（散文欄位）才該挖反引號
+    check(
+        "散文欄位仍然挖反引號",
+        "helper.func" in locator.extract_snippets("依據：`helper.func` 這個呼叫"),
+        locator.extract_snippets("依據：`helper.func` 這個呼叫"),
+    )
+
     # 摘要表格與 inline comment 必須指同一個位置。定位若放在下游的 post_review，
     # inline 會貼在修正後的行、而 review.md 還印著模型原本報的行號——
     # 兩邊對不起來，讀的人會以為系統壞了。所以定位在產 markdown 之前做。
@@ -256,6 +287,13 @@ def main() -> int:
             '{"remove":[{"index":0,"contradicting_line":"this_line_does_not_exist();","reason":"r"}]}')
         kept, removed, _ = run_filter()
         check("反證行不在 diff 裡時拒絕刪除", len(kept) == 2 and not removed, len(kept))
+
+        # 縮排／空白有出入仍要視為同一行。兩邊比對邏輯若分岔（一邊正規化、一邊沒有），
+        # filter 會因為對不上而永遠不刪，且不報錯——靜默失效。
+        reviewer.chat_completion = fake_chat(
+            '{"remove":[{"index":0,"contradicting_line":"const    id   =  req.query.id;","reason":"r"}]}')
+        kept, removed, _ = run_filter()
+        check("反證行只有空白差異時仍認得出來", len(kept) == 1 and len(removed) == 1, len(kept))
 
         # index 超出範圍
         reviewer.chat_completion = fake_chat(

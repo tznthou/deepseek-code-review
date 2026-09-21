@@ -276,6 +276,11 @@ def apply_filter(
         log(f"::warning::review filter 失敗，本次不過濾（{type(err).__name__}: {err}）")
         return findings, [], {}
 
+    # diff 只正規化一次。放進迴圈的話，每一筆 removal 都要重掃整份 diff——
+    # 而 diff 上限是 400 KB。（2026-09-21 由本 kit 自己 review 這段時報出來的，
+    # 成立並當場修掉。）
+    normalized_diff = locate.normalize_ws(diff)
+
     removals: dict[int, str] = {}
     for item in verdict.get("remove") or []:
         if not isinstance(item, dict):
@@ -290,7 +295,12 @@ def apply_filter(
             continue
         # 反證行必須真的在 diff 裡。模型宣稱「有一行寫著 X」時，X 必須存在——
         # 否則就是用一個幻覺刪掉一筆 finding，而那筆 finding 再也不會被看到。
-        if line not in diff:
+        #
+        # ⚠️ 比對前先正規化空白，而且用的是 locate 那支同一個函式。原本這裡是原始
+        # 子字串比對，而 locate.py 的片段定位是壓縮空白後比對——兩邊分岔的後果是
+        # 模型複製 YAML／Python 這類縮排敏感的行時，只要空白稍有出入就被判成幻覺，
+        # filter 於是永遠不刪任何東西。那是靜默失效：不報錯、log 看起來也正常。
+        if locate.normalize_ws(line) not in normalized_diff:
             log(f"[warn] filter 宣稱的反證行不在 diff 裡，忽略此筆刪除：{line[:60]}")
             continue
         removals[idx] = reason or "diff 有一行字面反駁"
