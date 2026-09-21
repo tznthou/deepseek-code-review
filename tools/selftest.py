@@ -221,6 +221,76 @@ def main() -> int:
     check("摘要用的是修正後的行號", "src/handler.ts:12" in md_after, md_after[:0])
     check("摘要不再出現模型報錯的行號", "src/handler.ts:10" not in md_after, md_after[:0])
 
+    print("[10] apply_filter：只刪 diff 能當場證偽的，其餘一律 fail-open")
+    # 這一層只會讓 finding 消失、不會讓它出現，所以每一條異常路徑都必須是「不刪」。
+    # 留下一筆該刪的，讀的人自己會判斷；刪掉一筆該留的，他連看都看不到。
+    FIND = [
+        {"path": "src/handler.ts", "line": 11, "severity": "minor", "title": "A", "body": "",
+         "existing_code": "const id = req.query.id;", "evidence": ""},
+        {"path": "src/handler.ts", "line": 12, "severity": "major", "title": "B", "body": "",
+         "existing_code": 'db.query("SELECT', "evidence": ""},
+    ]
+    orig_chat = reviewer.chat_completion
+
+    def fake_chat(payload_json):
+        def _f(base_url, api_key, payload, timeout, retries):
+            return {"choices": [{"message": {"content": payload_json}}], "usage": {}}
+        return _f
+
+    def run_filter():
+        return reviewer.apply_filter(
+            [dict(f) for f in FIND], SAMPLE_DIFF, "filter prompt",
+            "http://x", "k", "m", 5, 0, "disabled",
+        )
+
+    try:
+        # 正常刪除：反證行真的在 diff 裡
+        reviewer.chat_completion = fake_chat(
+            '{"remove":[{"index":0,"contradicting_line":"const id = req.query.id;","reason":"r"}]}')
+        kept, removed, _ = run_filter()
+        check("反證行在 diff 裡時正常刪除", len(kept) == 1 and len(removed) == 1 and kept[0]["title"] == "B",
+              [f["title"] for f in kept])
+
+        # 幻覺防線：模型宣稱的反證行根本不在 diff 裡
+        reviewer.chat_completion = fake_chat(
+            '{"remove":[{"index":0,"contradicting_line":"this_line_does_not_exist();","reason":"r"}]}')
+        kept, removed, _ = run_filter()
+        check("反證行不在 diff 裡時拒絕刪除", len(kept) == 2 and not removed, len(kept))
+
+        # index 超出範圍
+        reviewer.chat_completion = fake_chat(
+            '{"remove":[{"index":99,"contradicting_line":"const id = req.query.id;","reason":"r"}]}')
+        kept, _, _ = run_filter()
+        check("index 超出範圍時不刪", len(kept) == 2, len(kept))
+
+        # 空 remove（最常見的正確答案）
+        reviewer.chat_completion = fake_chat('{"remove":[]}')
+        kept, removed, _ = run_filter()
+        check("remove 為空時全部保留", len(kept) == 2 and not removed, len(kept))
+
+        # API 失敗
+        def boom(*a, **k):
+            raise RuntimeError("HTTP 500")
+        reviewer.chat_completion = boom
+        kept, removed, _ = run_filter()
+        check("API 失敗時全部保留", len(kept) == 2 and not removed, len(kept))
+
+        # 回傳不是 JSON
+        reviewer.chat_completion = fake_chat("對不起，我不知道")
+        kept, _, _ = run_filter()
+        check("回傳無法解析時全部保留", len(kept) == 2, len(kept))
+    finally:
+        reviewer.chat_completion = orig_chat
+
+    # 被刪掉的要在 review.md 留下痕跡，否則讀的人分不出「沒報」與「被吃掉」
+    md_f = reviewer.render_markdown(
+        {"summary": "s", "verdict": "comment", "findings": []},
+        {"number": 1, "base_ref": "main", "head_sha": "a"}, "m", {}, False,
+        [({"path": "a.ts", "line": 3, "severity": "minor", "title": "被刪的"}, "理由X")],
+    )
+    check("被 filter 刪掉的有列進 review.md", "被刪的" in md_f and "理由X" in md_f)
+    check("過濾區塊是收合的", "<details>" in md_f or "<details><summary>" in md_f)
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")

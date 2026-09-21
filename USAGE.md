@@ -237,6 +237,17 @@ file issue」，`--log-failed` 是空的，`actionlint` 也驗不出來——因
 | `model` | `deepseek-v4-pro` | 只有這個與 `deepseek-flash` 是合法值 |
 | `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline |
 | `max-inline` | `8` | 其餘降級進摘要 |
+| `filter-findings` | `false` | 開啟後**多一次 API 呼叫**，刪掉「diff 裡有某一行字面反駁它」的 finding。預設關閉的理由見下方 |
+
+`filter-findings` 值不值得開，取決於你怎麼用這個工具：
+
+* 它是 **fail-open** 的——API 失敗、回傳無法解析、或模型宣稱的反證行根本不在 diff 裡，
+  一律當成不刪。最壞情況是「沒過濾」，不是「誤刪」。
+* 被刪掉的 finding **仍會收合列在 review 摘要底部**，附刪除理由，不會無聲消失。
+* 代價是每次 review 多一次呼叫的錢，而且**效果還沒有多次實測的分布可佐證**——
+  本 kit 自己的 repo 已經打開它在收集資料，但在有分布之前，別人的 repo 預設不開。
+* ⚠️ 它只刪「diff 字面反駁」這一類。它**不會**幫你篩掉價值低的意見——那不是它的工作，
+  低價值不等於不正確。
 
 `reusable-ai-review-collect.yml`
 

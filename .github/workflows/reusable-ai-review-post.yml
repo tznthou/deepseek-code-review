@@ -59,6 +59,16 @@ on:
         required: false
         type: string
         default: ai-review-input
+      filter-findings:
+        description: >-
+          開啟後會多做一次 API 呼叫，刪掉「diff 裡有某一行字面反駁它」的 finding。
+          預設關閉：它多花一次呼叫的錢，而且效果尚未有多次實測的分布可佐證。
+          設計上是 fail-open —— 任何異常（API 失敗、回傳無法解析、模型宣稱的反證行
+          根本不在 diff 裡）都當成不刪，所以最壞情況是「沒過濾」而不是「誤刪」。
+          被刪掉的 finding 仍會收合列在 review 摘要底部，不會無聲消失。
+        required: false
+        type: boolean
+        default: false
     secrets:
       DEEPSEEK_API_KEY:
         description: https://platform.deepseek.com/api_keys —— 屬於呼叫方 repo，本 kit 拿不到
@@ -144,13 +154,16 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ inputs.model }}
+          RUBRIC_PATH: ${{ steps.rubric.outputs.path }}
+          FILTER_FINDINGS: ${{ inputs.filter-findings }}
         run: |
-          python3 .kit/.github/scripts/deepseek_review.py \
-            --diff in/pr.diff \
-            --meta in/meta.json \
-            --rubric '${{ steps.rubric.outputs.path }}' \
-            --out review.md \
-            --findings-out findings.json
+          # 值一律走 env 再由 shell 展開，不要把 expression 直接內插進 run block
+          ARGS=(--diff in/pr.diff --meta in/meta.json --rubric "$RUBRIC_PATH"
+                --out review.md --findings-out findings.json)
+          if [ "$FILTER_FINDINGS" = "true" ]; then
+            ARGS+=(--filter-prompt .kit/prompts/review-filter.md)
+          fi
+          python3 .kit/.github/scripts/deepseek_review.py "${ARGS[@]}"
 
       - name: 貼回 PR（摘要 + inline comments）
         if: steps.pr.outputs.number != ''
