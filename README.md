@@ -3,8 +3,12 @@
 一份可以直接放進 repo 的實作範本：**便宜的先跑（linter/SAST），貴的才跑（LLM），
 而且 fork PR 也安全。**
 
-**目前版本 `v1.1.1`。** 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
-邏輯留在這個 repo，你那邊只放引用。**完整做法見 [`USAGE.md`](USAGE.md)。**
+[![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
+[![selftest](https://img.shields.io/badge/selftest-46%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+
+導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
+邏輯留在這個 repo，你那邊只放引用（`@v1` 是浮動 tag，這邊修好下次就送到）。
+**完整做法見 [`USAGE.md`](USAGE.md)。**
 
 ```bash
 $ ./review-local.sh origin/main          # 本機先試一次，不碰 GitHub
