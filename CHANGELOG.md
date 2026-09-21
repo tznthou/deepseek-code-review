@@ -19,6 +19,13 @@
 - 模型輸出被 `max_tokens` 砍斷時，錯誤訊息是「回應中找不到 JSON 物件」——
   JSON 格式其實完全正確，只是少了尾巴。症狀指向格式、真因是長度，而 token 費用照算。
   現在會直接說明是截斷，並區分兩種成因（額度不足 vs thinking 吃光額度）。
+- 截斷提示的分流條件從「`content` 空不空」改成「thinking 開著沒」。
+  thinking 開著時就算已經有部分輸出，首要嫌疑仍然是 reasoning 吃掉額度
+  （2026-09-19 實測：`--max-tokens` 給到 32768 仍被截斷，reasoning 自己用掉 31408），
+  舊的分流會在這種情況下叫使用者去調一個沒用的參數。
+  **這筆是 kit 自己的 review 在 PR #17 報出來的**（3 筆裡唯一完全成立的一筆）。
+- `truncation_error` 接受 `content` 為 `None`——OpenAI 相容回應的 `content` 可能是 null，
+  偵測本身不應該先崩掉。
 - `deepseek_review.py` 檔頭 docstring 寫著 `DEEPSEEK_MODEL` 預設 `deepseek-flash`，
   實際預設是 `deepseek-v4-pro`。
 
@@ -27,7 +34,7 @@
 - `review-local.sh` 支援 `MAX_TOKENS` 環境變數。截斷訊息會要求使用者調高額度，
   本機入口就必須真的調得動。
 - README §9「為什麼會有這個 repo」。
-- `tools/selftest.py` 新增兩組測試（37 → 47 項）：截斷偵測的四種情境，
+- `tools/selftest.py` 新增兩組測試（37 → 49 項）：截斷偵測的四種情境，
   以及本機入口與 CI 的參數對齊檢查。
 
 ## [1.2.1] - 2026-09-21

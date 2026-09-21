@@ -312,6 +312,17 @@ def main() -> int:
         "thinking=disabled 但內容空白時仍走一般訊息",
         (reviewer.truncation_error("length", "", 8192, "disabled") or "").find("--max-tokens") != -1,
     )
+    # 2026-09-19 實測：max-tokens 給到 32768 仍被 reasoning 吃光（用掉 31408），
+    # 而那次 content 是有東西的。只按「content 空不空」分流會在這裡給錯建議。
+    partial = reviewer.truncation_error("length", '{"summary":"半截', 8192, "high")
+    check(
+        "thinking 開著且已有部分輸出時仍指向 thinking",
+        partial is not None and "--thinking disabled" in partial,
+        partial,
+    )
+    # content 在 OpenAI 相容回應裡可能是 null，不能讓偵測本身先崩掉
+    none_content = reviewer.truncation_error("length", None, 8192, "disabled")
+    check("content 為 None 時不崩潰且仍回訊息", none_content is not None, none_content)
 
     print("[12] review-local.sh：本機入口的參數必須跟 CI 對齊")
     local_sh = (ROOT / "review-local.sh").read_text(encoding="utf-8")

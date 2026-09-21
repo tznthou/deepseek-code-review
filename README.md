@@ -4,7 +4,7 @@
 而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
-[![selftest](https://img.shields.io/badge/selftest-47%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![selftest](https://img.shields.io/badge/selftest-49%20passing-brightgreen?style=flat-square)](tools/selftest.py)
 [![license](https://img.shields.io/github/license/tznthou/deepseek-code-review?style=flat-square)](LICENSE)
 
 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
@@ -75,7 +75,7 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測（12 組 47 項）
+│   ├── selftest.py                         # 不需網路/API key 的自測（12 組 49 項）
 │   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff

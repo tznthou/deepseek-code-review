@@ -208,7 +208,7 @@ def chat_completion(
 
 
 def truncation_error(
-    finish_reason: str | None, content: str, max_tokens: int, thinking: str
+    finish_reason: str | None, content: str | None, max_tokens: int, thinking: str
 ) -> str | None:
     """輸出被 max_tokens 砍斷時回傳該印的訊息，沒砍斷回 None。
 
@@ -221,11 +221,15 @@ def truncation_error(
     """
     if finish_reason != "length":
         return None
-    if not content.strip() and thinking != "disabled":
+    content = content or ""
+    # thinking 只要開著就是首要嫌疑，不看 content 空不空：2026-09-19 實測
+    # max-tokens 給到 32768 仍被截斷（reasoning 自己用掉 31408），那次 content
+    # 是有東西的。只按「content 空不空」分流會在這種情況下給錯建議。
+    if thinking != "disabled":
         hint = (
-            f"thinking={thinking} 的 reasoning tokens 與輸出共用 max_tokens，"
-            "額度被吃光時 content 會是空字串。改用 --thinking disabled，"
-            "或把 --max-tokens 拉到 65536 以上"
+            f"thinking={thinking} 的 reasoning tokens 與輸出共用 max_tokens。"
+            "先改用 --thinking disabled；要保留 reasoning 就把 --max-tokens "
+            "拉到 65536 以上（實測 32768 仍會被 reasoning 吃光）"
         )
     else:
         hint = "重跑並把 --max-tokens 調高，或用 --max-diff-chars 縮小送出的 diff"
