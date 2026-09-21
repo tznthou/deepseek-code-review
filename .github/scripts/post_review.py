@@ -10,7 +10,11 @@
     --review review.md --findings findings.json --diff pr.diff
 
 安全設計：
-  * **先驗證行號**：只有落在 diff hunk 內的新增側行號才會貼 inline comment，
+  * **行號由程式算，不信模型報的**：先用 `locate.resolve_line` 拿 finding 引用的
+    程式碼片段去 diff 裡做文字比對定位；定不到才退回模型自己報的行號。
+    2026-09-21 對八次真實 review 的 artifact 實測（n=16），模型報的行號只有 1 筆
+    真的指向它 evidence 引用的那段 code，其餘偏移 +1 到 +24 行。詳見 locate.py。
+  * **再驗證行號**：只有落在 diff hunk 內的新增側行號才會貼 inline comment，
     否則 GitHub API 會回 422。驗證失敗的 finding 會被降級寫進 summary。
   * **冪等**：summary 用 `gh pr comment --edit-last --create-if-none`；
     inline comment 會比對既有的 `<!-- deepseek-review -->` 標記，不重複張貼。
@@ -26,6 +30,9 @@ import os
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import locate  # noqa: E402  （同目錄模組，必須在 sys.path 調整之後 import）
 
 SEVERITY_RANK = {"nit": 0, "minor": 1, "major": 2, "blocker": 3}
 MARKER = "deepseek-review"
@@ -185,34 +192,57 @@ def main() -> int:
         findings = []
 
     valid: dict[str, set[int]] = {}
+    index: dict[str, dict[int, str]] = {}
     if args.diff and os.path.exists(args.diff):
         with open(args.diff, "r", encoding="utf-8", errors="replace") as fh:
-            valid = parse_valid_lines(fh.read())
+            diff_text = fh.read()
+        valid = parse_valid_lines(diff_text)
+        index = locate.index_diff(diff_text)
 
     min_rank = SEVERITY_RANK[args.min_severity]
-    selected, skipped = [], []
+    selected: list[dict] = []
+    skipped: list[tuple[dict, str]] = []
+    relocated = 0
     for f in findings:
         if SEVERITY_RANK.get(f.get("severity", "nit"), 0) < min_rank:
-            skipped.append(f)
+            skipped.append((f, f"嚴重度 {f.get('severity')} 未達 {args.min_severity}"))
             continue
         if float(f.get("confidence", 0)) < args.min_confidence:
-            skipped.append(f)
+            skipped.append((f, f"信心 {float(f.get('confidence', 0)):.2f} < {args.min_confidence}"))
             continue
+        if index:
+            # 片段優先、模型行號其次。resolve_line 可能改寫 f["path"]（跨檔命中），
+            # 所以底下的 valid 檢查一定要在這之後、用改寫後的 path。
+            model_line = f.get("line")
+            resolved, how = locate.resolve_line(f, index)
+            if resolved is None:
+                skipped.append((f, how))
+                continue
+            if resolved != model_line:
+                log(f"[info] 重新定位 {f['path']}:{model_line} → {resolved}（{how}）")
+                f["line"] = resolved
+                relocated += 1
         allowed = valid.get(f["path"])
         if valid and (allowed is None or f["line"] not in allowed):
-            skipped.append(f)
+            skipped.append((f, "行號不在 diff 可留言範圍內"))
             continue
         selected.append(f)
 
     selected = selected[: args.max_inline]
-    log(f"[info] findings={len(findings)} inline={len(selected)} skipped={len(skipped)}")
+    # 這幾個數字要印出來：dogfood 那次 bug（2026-09-21 PR #5）的症狀正是
+    # 「每個 step 都 success、review.md 完整、PR 上零留言」，當時 log 裡沒有
+    # 任何一個數字能揭穿它。
+    log(
+        f"[info] findings={len(findings)} inline={len(selected)} "
+        f"skipped={len(skipped)} relocated={relocated}"
+    )
 
     if skipped:
         review_body += "\n\n### 未張貼為 inline 的 finding\n\n"
-        for f in skipped:
+        for f, reason in skipped:
             review_body += (
                 f"- `{f['path']}:{f['line']}` **{f['severity']}** — {f['title']}"
-                "（行號不在 diff 內、或信心/嚴重度未達門檻）\n"
+                f"（{reason}）\n"
             )
 
     if args.dry_run:

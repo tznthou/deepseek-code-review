@@ -64,6 +64,7 @@
       "confidence": 0.85,
       "title": "簡短標題（< 80 字）",
       "body": "問題說明 + 具體失敗情境 + 建議修法。可用 markdown。",
+      "existing_code": "從 diff 逐字複製的那一行（或連續數行）原始碼",
       "evidence": "為什麼你這樣判斷（引用 diff 中的哪幾行）"
     }
   ]
@@ -72,8 +73,16 @@
 
 規則：
 
-- `line` 必須是 **NEW 檔案的行號**（diff 中 `+` 側），且必須落在 diff hunk 涵蓋的範圍內。
-  無法定位到具體行號的問題，請放進 `summary`，不要放進 `findings`。
+- `existing_code` 是**定位這個 finding 的主要依據**，必填。規則：
+  - 從 diff **逐字複製**問題所在的那一行或連續數行，不要改寫、不要重排、不要補字。
+  - 把行首的 diff 標記（`+`、`-`、空白）去掉之後再放進來。
+  - 只放與問題直接相關的行，不要附帶上下文。
+  - 選**在這份 diff 裡只出現一次**的那幾行。若你要指的那行是 `}` 或 `fi` 這類
+    到處都有的內容，就往上或往下多取一行，讓整段變得唯一。
+- `line` 是 **NEW 檔案的行號**（diff 中 `+` 側），盡力給最準的值；
+  它是 `existing_code` 定位失敗時的備援，不是主要依據。
+  無法定位到具體行號、也給不出 `existing_code` 的問題，請放進 `summary`，
+  不要放進 `findings`。
 - `verdict` 的判斷：有任何 `blocker` → `request_changes`；只有 `major`/`minor` → `comment`；
   完全沒有 finding 且你確信安全 → `approve`。
 - `findings` 最多 10 筆，依 severity 由高到低排序。沒有 finding 就給空陣列 `[]`。

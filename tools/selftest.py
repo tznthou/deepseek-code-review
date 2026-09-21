@@ -140,6 +140,87 @@ def main() -> int:
     if m:
         check("該呼叫帶 --repo", '"--repo"' in m.group(0), m.group(0)[:120])
 
+    print("[9] locate：行號要由片段文字比對算出來，不能照抄模型報的")
+    # 為什麼值得一組測試：2026-09-21 拿八次真實 review 的 artifact 實測（n=16），
+    # 模型報的行號只有 1 筆真的指向它自己 evidence 引用的那段 code，
+    # 其餘 15 筆偏移 +1 到 +24 行。最誇張的一筆，evidence 明寫
+    # 「第 48 行：`BASE='...base.sha'`」，而那行實際在 55。
+    locator = load(".github/scripts/locate.py", "locate")
+    index = locator.index_diff(SAMPLE_DIFF)
+    check(
+        "index_diff 留下行內容而不只是行號",
+        index.get("src/handler.ts", {}).get(12) == '  db.query("SELECT * FROM t WHERE id=" + id);',
+        index.get("src/handler.ts", {}).get(12),
+    )
+
+    # 模型把行號報錯（說 10，實際在 12），片段唯一命中要把它拉回來。
+    drifted = {
+        "path": "src/handler.ts",
+        "line": 10,
+        "existing_code": 'db.query("SELECT * FROM t WHERE id=" + id);',
+    }
+    line, how = locator.resolve_line(drifted, index)
+    check("片段唯一命中時修正錯誤行號", line == 12, f"{line} / {how}")
+
+    # 片段在該檔找不到 → 退回模型行號，不要自己猜一個。
+    missing = {"path": "src/handler.ts", "line": 12, "existing_code": "this_string_is_not_in_the_diff_at_all()"}
+    line, how = locator.resolve_line(missing, index)
+    check("片段定不到時退回模型行號", line == 12 and "退回模型行號" in how, f"{line} / {how}")
+
+    # 片段與模型行號都定不到 → 誠實回 None，交給呼叫端降級。
+    hopeless = {"path": "src/handler.ts", "line": 999, "existing_code": "still_not_here_either()"}
+    line, how = locator.resolve_line(hopeless, index)
+    check("兩者都定不到時回 None", line is None, f"{line} / {how}")
+
+    # 多重命中一律不猜：挑一個等於拿錯位置換錯位置。
+    dup_diff = SAMPLE_DIFF.replace("+  return user.name;", "+  return user.name;\n+  const id = req.query.id;")
+    dup_index = locator.index_diff(dup_diff)
+    ambiguous = {"path": "src/handler.ts", "line": 999, "existing_code": "const id = req.query.id;"}
+    line, how = locator.resolve_line(ambiguous, dup_index)
+    check("多重命中時拒絕定位", line is None and "多重命中" in how, f"{line} / {how}")
+
+    # finding 掛錯檔案但內容引對了 → 跨檔唯一命中要改寫 path。
+    wrong_file = {"path": "README.md", "line": 1, "existing_code": 'db.query("SELECT * FROM t WHERE id=" + id);'}
+    line, how = locator.resolve_line(wrong_file, index)
+    check(
+        "跨檔唯一命中時改寫 path",
+        line == 12 and wrong_file["path"] == "src/handler.ts",
+        f"{line} / {wrong_file['path']} / {how}",
+    )
+
+    # 太短的片段不拿來定位（`}`、`fi` 這類到處都命中）。
+    check("過短的片段被忽略", locator.extract_snippets("`fi`", "`}`") == [], locator.extract_snippets("`fi`", "`}`"))
+
+    # 摘要表格與 inline comment 必須指同一個位置。定位若放在下游的 post_review，
+    # inline 會貼在修正後的行、而 review.md 還印著模型原本報的行號——
+    # 兩邊對不起來，讀的人會以為系統壞了。所以定位在產 markdown 之前做。
+    drift_result = {
+        "summary": "s",
+        "verdict": "comment",
+        "findings": [
+            {
+                "path": "src/handler.ts",
+                "line": 10,
+                "side": "RIGHT",
+                "severity": "blocker",
+                "confidence": 0.9,
+                "title": "SQLi",
+                "body": "x",
+                "existing_code": 'db.query("SELECT * FROM t WHERE id=" + id);',
+                "evidence": "",
+            }
+        ],
+    }
+    for fnd in drift_result["findings"]:
+        resolved, _ = locator.resolve_line(fnd, index)
+        if resolved is not None:
+            fnd["line"] = resolved
+    md_after = reviewer.render_markdown(
+        drift_result, {"number": 7, "base_ref": "main", "head_sha": "abc"}, "m", {}, False
+    )
+    check("摘要用的是修正後的行號", "src/handler.ts:12" in md_after, md_after[:0])
+    check("摘要不再出現模型報錯的行號", "src/handler.ts:10" not in md_after, md_after[:0])
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")
