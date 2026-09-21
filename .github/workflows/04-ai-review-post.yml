@@ -36,8 +36,5 @@ permissions:
 jobs:
   post:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
-    # ⚠️ 2026-09-21：`filter-findings` 已關掉，理由見 README §4。
-    # 用 AACR-Bench 實測的結果是它讓 precision 變差——誤刪 4 筆正確的、
-    # 只刪對 1 筆錯的。在有更好的證據之前不要再打開。
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

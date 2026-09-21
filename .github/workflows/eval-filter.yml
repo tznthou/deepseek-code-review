@@ -1,8 +1,10 @@
 # 用 AACR-Bench 評估 review filter — 手動觸發，不會自己跑
 #
-# 為什麼要有這支：`filter-findings` 預設關閉，理由是「效果沒有分布資料」。
-# 這支就是去產生那個資料的。改了 `prompts/review-filter.md` 之後可以直接重跑，
-# 看誤刪率有沒有變差。
+# 為什麼要有這支：任何「自動刪掉某類 finding」的想法，上線前先用人工標註資料
+# 量一次誤刪率。本 kit 曾經內建過一份 filter prompt，實測誤刪是刪對的 3.75 倍，
+# 已經移除（見 README §8）——這支留下來是因為評估方法本身可重用。
+#
+# ⚠️ 不內建 prompt，要自己用 filter-prompt 指一份進來。
 #
 # 需要的 secret：DEEPSEEK_API_KEY（與 04 同一把）
 #
@@ -13,6 +15,10 @@ name: eval filter (AACR-Bench)
 on:
   workflow_dispatch:
     inputs:
+      filter-prompt:
+        description: 要評估的 filter prompt 檔案路徑（本 kit 不內建，需自備一份放進 repo）
+        required: true
+        type: string
       limit:
         description: 只跑前 N 個 PR（0 = 全部，約 140 個 / $0.5）
         required: false
@@ -48,9 +54,14 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           MODEL: ${{ inputs.model }}
+          FILTER_PROMPT: ${{ inputs.filter-prompt }}
         run: |
           # 值走 env 再由 shell 展開，不要把 expression 內插進 run block
-          python3 tools/eval/eval_filter.py --model "$MODEL"
+          if [ ! -f "$FILTER_PROMPT" ]; then
+            echo "::error::找不到 filter prompt：$FILTER_PROMPT（本 kit 不內建，需自備）"
+            exit 1
+          fi
+          python3 tools/eval/eval_filter.py --model "$MODEL" --filter-prompt "$FILTER_PROMPT"
 
       - name: 上傳明細
         if: always()
