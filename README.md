@@ -628,17 +628,19 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   規則確實依檔案型態被挑中（測項 `[11]`），以及**補充規則走 user message、
   system prompt 逐字不變**——三種 diff 型態下 system prompt 都是同樣的 2,886 字元，
   這是 context caching 命中的前提。
-  ⚠️ **`typed-rules` 對 cache 的影響還沒驗到**。v1.1.0 發布後的第一個 PR 是純文件改動，
-  不匹配任何規則，所以那條路徑沒被執行。要驗得改到 `.py` 或 workflow 檔案。
+  ✅ **`typed-rules` 已在真實環境驗過**（2026-09-21，PR #10 第二次跑）：diff 含 `.py`
+  檔案時 log 出現 `套用補充規則：python.md`，純 markdown 的 diff 則不附加任何規則。
 
-  ⚠️ **另一個獨立的觀察：改 rubric 會砍掉一半的 cache 命中。** 實測三次
-  `prompt_cache_hit_tokens`：舊 rubric（80 行）兩次都是 **1,280**（`prompt_tokens`
-  分別是 1,932 與 10,301，命中數不隨 diff 大小變動）；v1.1.0 把 rubric 加長到 89 行
-  之後，第一次跑掉到 **640**。
-  DeepSeek 的 cache 是**前綴比對**，以 64 token 為一個 block——改動點之後的內容全部
-  重新計費，所以修改位置越靠前，失效的越多。
-  這條的可操作結論：**往 system prompt 加東西時盡量加在最尾端**，不要插在中段。
-  （640 是否為過渡值、下一次跑會不會回升，尚未驗證。）
+  ⚠️ **改 rubric 會讓下一次跑的 cache 命中暫時掉一半，之後回升。** 實測四次
+  `prompt_cache_hit_tokens`：舊 rubric（80 行）兩次都是 **1,280**，且不隨 diff 大小
+  變動（`prompt_tokens` 分別是 1,932 與 10,301）；v1.1.0 把 rubric 加長到 89 行後，
+  第一次跑掉到 **640**、第二次回到 **1,024**。
+  所以 640 是 cache 重建的過渡值，不是結構性損失——DeepSeek 的 cache 是前綴比對，
+  改動之後要有一次請求去重新建立它。
+  **推論但未驗證**：穩定值是否會回到 1,280 以上（rubric 變長理應更多），要再跑幾次才知道。
+* **`filter-findings` 每次都是完整的 cache miss。** 它用的是另一份 system prompt
+  （`review-filter.md`），實測 `prompt_cache_hit_tokens: 0`。這是它的額外成本裡
+  容易被忽略的一塊：不只是多一次呼叫，而是多一次**沒有 cache 折扣**的呼叫。
 * **rubric 新增的 `existing_code` 欄位還沒跑過真實 API。** 上面那組定位實驗用的是
   既有的 `evidence` 欄位當替身——那個欄位本來不是設計來定位的，只是剛好常夾帶
   程式碼引用。專用欄位的片段品質應該更好，但**那是推測，沒驗**。
