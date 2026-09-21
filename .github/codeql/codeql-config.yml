@@ -8,6 +8,12 @@ name: 'CodeQL config'
 queries:
   - uses: security-and-quality # 安全 + 程式碼品質查詢
 
+# 預設的 threat model 只把「遠端」輸入當汙染源（HTTP request 之類）。
+# 命令列參數、環境變數、檔案系統屬於 local source，預設不在追蹤範圍內——
+# 所以 `sys.argv` 流進 `subprocess.run(..., shell=True)` 這種本機工具的
+# command injection，預設設定下不會被報出來。
+threat-models: local
+
 paths-ignore:
   - '**/node_modules'
   - '**/dist'
