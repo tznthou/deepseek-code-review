@@ -68,6 +68,17 @@ on:
         required: false
         type: boolean
         default: true
+      filter-findings:
+        description: >-
+          ⚠️ 已停用，傳什麼都不會有作用，將於 v2 移除。
+          這一層曾經多做一次 API 呼叫，刪掉「diff 裡有某一行字面反駁它」的 finding。
+          用 AACR-Bench 的 700 則人工標註實測之後整個移除：誤刪 15 筆正確的，只刪對 4 筆，
+          precision 反而下降。見 README §8。
+          這個 input 保留著只為了讓 v1.1.x 的 caller 不會在 startup 就失敗 —— `v1` 是浮動
+          major tag，移除它等於把破壞性變更自動推播給所有引用 `@v1` 的人。
+        required: false
+        type: boolean
+        default: false
     secrets:
       DEEPSEEK_API_KEY:
         description: https://platform.deepseek.com/api_keys —— 屬於呼叫方 repo，本 kit 拿不到
@@ -92,6 +103,13 @@ jobs:
       cancel-in-progress: true
 
     steps:
+      # 只在呼叫方還傳著已停用的 input 時才出聲。`v1` 是浮動 tag，v1.1.x 的 caller
+      # 會在我們打 tag 的那一刻自動跑到新版，所以不能靠「他們會看 CHANGELOG」。
+      - name: 提醒已停用的 input
+        if: inputs.filter-findings
+        run: |
+          echo "::warning::filter-findings 自 v1.2.0 起沒有作用（700 則人工標註實測：誤刪 15 筆正確的、只刪對 4 筆，見 README §8），將於 v2 移除。可以直接從 caller 拿掉這個參數。"
+
       # ⚠️ 這一步是 reusable 版本獨有的：reusable workflow 裡的 checkout 抓的是呼叫方 repo，
       #    所以 deepseek_review.py / post_review.py / 內建 rubric 都得自己撈過來。
       - name: 取得 kit（腳本與內建 rubric）

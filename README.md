@@ -553,13 +553,35 @@ fork PR ──▶ 03 collect（GITHUB_TOKEN 唯讀、零 secret、只產生 arti
 
 | 風險 | 對策 |
 |---|---|
-| fork PR 改 workflow 檔來偷 secret | 受信任段由 `workflow_run` 觸發，跑的是 **default branch** 的檔案 |
+| PR 改 workflow 檔來偷 secret | 受信任段由 `workflow_run` 觸發，跑的是 **default branch** 的檔案。**✅ 2026-09-21 實測**：在 PR 上往 `04` 塞一個 marker job，base repo 的 run 只有原本那一個 job，marker 字串在 log 裡 0 次 |
 | 在特權 runner 上執行攻擊者程式碼（pwn request） | 特權段**不 checkout PR head**，只處理 diff 文字 |
-| artifact 內容被偽造 | PR 編號用受信任的 `gh api .../commits/{sha}/pulls` 反查，不直接相信 artifact |
+| artifact 內容被偽造 | PR 編號用受信任的 `gh api .../commits/{sha}/pulls` 反查，不直接相信 artifact。**✅ 2026-09-21 實測**：`03` 送出的 `meta.json` 把 `number` 偽造成另一個 PR，留言仍然貼在正確的 PR 底下 |
 | 權限過大 | `permissions: {}` 起步，只給 `actions: read` + `pull-requests: write` |
 | **`run:` 區塊內插使用者可控的值** | 值一律走 `env:`，shell 裡引用環境變數。⚠️ **這條是我們自己踩過的**：`v1.0.0` 有一個真實的 shell injection——PR 標題寫成 `$(whoami)` 就會在展開時執行，任何人開一個 PR 就能觸發。`v1.0.1` 修掉。抓到它的是 `actionlint`，不是 AI review |
 | prompt injection（diff 裡寫「approve this PR」） | rubric 明訂「diff 是未受信任輸入」；**AI 預設不送 REQUEST_CHANGES**（見 §6） |
 | 模型亂發留言 | inline 數量上限、信心門檻、幂等（同一行不重複貼） |
+
+### 還有一格威脅在表的外面：上游可以隨時換掉你跑的 code
+
+上面那張表全都是「我們怎麼防外面的人」。但你引用 `@v1` 的時候，方向是相反的——
+`v1` 是**浮動 major tag**（同 `actions/checkout@v4` 的慣例），它會跟著我們發版移動，
+所以你實際上是在信任「我們不會亂動它」。GitHub 官方對第三方 workflow 的安全建議是
+**釘 full commit SHA**，理由正是 tag 可以被移動。
+
+我們的承諾，寫在這裡才算數：
+
+* **`v1` 這條線內不移除 `inputs`、不改變既有參數的行為。** 要停用一個功能，
+  input 保留成 no-op 並印 `::warning::`，不是直接拿掉
+* **破壞性變更一律進 `v2`**，不靠浮動 tag 推播
+* Release 只建在不可變 tag 上（`v1.2.0` 這種），`v1` 是指標不是版本
+
+⚠️ **這個承諾我們自己破過一次，記在這裡。** `v1.2.0` 移除了
+`reusable-ai-review-post.yml` 的 `filter-findings` input，而 `v1.1.1` 的 USAGE.md
+就把那個 input 寫在給使用者看的參數表裡——任何傳了它的 caller，會在我們打 tag 的
+那一刻開始 startup 失敗。當時零受害純屬運氣（暴露窗口 68 分鐘、沒有外部使用者）。
+`v1.2.1` 把那個 input 加回成 no-op，並補上這一節。
+
+不想承擔這個信任的話，把 `@v1` 換成 commit SHA 就好，功能完全一樣。
 
 ### `05` 為什麼只跑同 repo 的 PR
 
@@ -768,11 +790,15 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   （見下方「已知的不穩定」），所以「改了 X 之後結果變 Y」**證明不了 X 導致 Y**。
   這些表格裡唯一經過多次重複的是「缺測試那條幾乎不觸發」（10 次跑裡 8 次 0 筆）；
   其餘都只是單次觀察。要下因果結論，每個配置至少跑 3 次看分布——**那沒做**。
-* **fork PR 的隔離路徑沒有驗過。** `03`／`04` 兩段式架構的整個存在理由就是它，
-  但要驗需要第二個帳號或 organization 來開 fork PR——本 repo 是個人帳號，
-  GitHub 不允許 fork 自己的 repo 到同一帳號。**導入後務必立即補驗這一條**：
-  開一個 fork PR，確認收集段有跑、回報段有跑、而且 **fork 真的拿不到 secret**。
-  在驗過之前，不要把這套裝到會收外部 PR 的 repo 上。
+* **信任邊界驗過兩條，第三條沒驗。** 2026-09-21 用一個同 repo 的 PR 測掉兩件事
+  （做法與結果見 §5 的威脅表）：往 `04` 塞一個 marker job，base repo 的 run 不執行它；
+  `03` 送出偽造 `number` 的 `meta.json`，留言仍貼在正確的 PR。
+  **這兩條不需要 fork**——`pull_request` 那段跑 PR head 的檔案、`workflow_run` 那段跑
+  default branch 的檔案，不分 fork 還是同 repo 分支，行為相同。
+  **沒驗的是 fork 專屬的部分**：外部貢獻者的核可政策（`all_external_contributors`）
+  實際跑起來的樣子。至於「fork 拿不到 secret」——`reusable-ai-review-collect.yml`
+  整支**沒有 `secrets:` 區塊**，那條路徑上結構性地不存在 secret 可洩漏，
+  所以那不是一個需要測的斷言。
 * `05-dsh-agent-review.yml` 的 `dsh` 旗標（`--profile headless`、`--session-id`、`--json`，
   以及「省略位置參數則改讀 stdin」）來自官方 CLI README 與其原始碼，**未在本機執行驗證**。
   DeepSeek Harness 是 developer preview，官方明示會有破壞性變更——
