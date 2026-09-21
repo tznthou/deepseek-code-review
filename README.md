@@ -610,6 +610,18 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 
 ### 未驗證
 
+* **`filter-findings`（review filter）的效果沒有分布資料。** 它是刻意上線收集的起點，
+  不是結論。本 repo 自己的 `04` 已打開它，外部使用者**預設關閉**。
+  已驗的只有機制層：六條 fail-open 路徑（API 失敗、回傳無法解析、index 越界、
+  模型宣稱的反證行不在 diff 裡）都在 `selftest.py` 測項 `[10]` 驗過會「不刪」。
+  在累積多次真實 PR 的「刪不刪、刪得對不對」之前，不要把它當品質保證。
+* **`typed-rules`（分型別補充規則）的效果也還沒有資料。** 已驗的是兩件機制層的事：
+  規則確實依檔案型態被挑中（測項 `[11]`），以及**補充規則走 user message、
+  system prompt 逐字不變**——三種 diff 型態下 system prompt 都是同樣的 2,886 字元，
+  這是 context caching 命中的前提。
+  ⚠️ 但**實際 cache 命中率沒有量過**。要驗的話看真實跑的 `prompt_cache_hit_tokens`：
+  歷史基準是 **1,280**（`prompt_tokens` 約 2,500–10,300 時），若這個數字在啟用
+  `typed-rules` 後仍維持 1,280，表示規則放 user message 的設計成立。
 * **rubric 新增的 `existing_code` 欄位還沒跑過真實 API。** 上面那組定位實驗用的是
   既有的 `evidence` 欄位當替身——那個欄位本來不是設計來定位的，只是剛好常夾帶
   程式碼引用。專用欄位的片段品質應該更好，但**那是推測，沒驗**。
