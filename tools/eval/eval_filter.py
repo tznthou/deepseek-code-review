@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""用 AACR-Bench 的標註評估 `prompts/review-filter.md` 到底刪對還是刪錯。
+"""用 AACR-Bench 的人工標註，評估一份「過濾 finding」的 prompt 到底刪對還是刪錯。
 
 資料集怎麼來、為什麼只取那個子集，見 `build_eval_set.py` 的說明。
 
@@ -14,8 +14,18 @@
 誤刪比漏抓貴得多：留下一筆錯的 finding，讀的人自己會判斷；刪掉一筆對的，
 他連看都看不到。所以 filter 的設計目標是「誤刪率趨近 0」，不是「抓錯率最大化」。
 
+⚠️ 這支**不內建任何 filter prompt**，要自己用 `--filter-prompt` 指一份進來。
+
+本 kit 曾經內建過一份（參考另一個專案的設計寫的），2026-09-21 用這套工具實測的
+結果是：它誤刪 15 筆正確的、只刪對 4 筆，precision 從 72.71% 掉到 72.54% ——
+誤刪是刪對的 3.75 倍。那份 prompt 已經移除，完整數據見 README §8。
+
+留下這支腳本是因為**評估方法本身可重用**：任何「自動刪掉某類 finding」的想法，
+都可以先用它在固定分母上量一次誤刪率，再決定要不要上線。
+
 用法：
-    DEEPSEEK_API_KEY=... python3 tools/eval/eval_filter.py [--limit N]
+    DEEPSEEK_API_KEY=... python3 tools/eval/eval_filter.py \
+        --filter-prompt path/to/your-filter.md [--limit N]
 """
 from __future__ import annotations
 
@@ -132,7 +142,8 @@ def run_one_pr(item, filter_prompt, api_key, model, thinking):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--eval-set", default=os.path.join(HERE, "eval_set.json"))
-    ap.add_argument("--filter-prompt", default=os.path.join(ROOT, "prompts", "review-filter.md"))
+    ap.add_argument("--filter-prompt", required=True,
+                    help="要評估的 filter prompt 檔案路徑（本 kit 不內建，需自備）")
     ap.add_argument("--limit", type=int, default=0, help="只跑前 N 個 PR")
     ap.add_argument("--model", default=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"))
     ap.add_argument("--thinking", default="disabled", choices=["disabled", "low", "high", "max"])

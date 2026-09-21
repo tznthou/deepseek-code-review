@@ -68,15 +68,6 @@ on:
         required: false
         type: boolean
         default: true
-      filter-findings:
-        description: >-
-          ⛔ 不要開。2026-09-21 用 AACR-Bench 的 700 則人工標註 comment 實測：
-          誤刪 15 筆正確的、只刪對 4 筆錯的，precision 從 72.71% 掉到 72.54%。
-          15 筆誤刪裡 9 筆是實質的程式缺陷。保留這個 input 是為了讓改進後能重跑
-          評估（tools/eval/），不是建議使用。詳見 README 的 filter-findings 實測。
-        required: false
-        type: boolean
-        default: false
     secrets:
       DEEPSEEK_API_KEY:
         description: https://platform.deepseek.com/api_keys —— 屬於呼叫方 repo，本 kit 拿不到
@@ -163,7 +154,6 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_MODEL: ${{ inputs.model }}
           RUBRIC_PATH: ${{ steps.rubric.outputs.path }}
-          FILTER_FINDINGS: ${{ inputs.filter-findings }}
           TYPED_RULES: ${{ inputs.typed-rules }}
         run: |
           # 值一律走 env 再由 shell 展開，不要把 expression 直接內插進 run block
@@ -171,9 +161,6 @@ jobs:
                 --out review.md --findings-out findings.json)
           if [ "$TYPED_RULES" = "true" ]; then
             ARGS+=(--rules-dir .kit/prompts/rules)
-          fi
-          if [ "$FILTER_FINDINGS" = "true" ]; then
-            ARGS+=(--filter-prompt .kit/prompts/review-filter.md)
           fi
           python3 .kit/.github/scripts/deepseek_review.py "${ARGS[@]}"
 

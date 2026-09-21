@@ -106,11 +106,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--timeout", type=int, default=300, help="單次請求逾時（秒）")
     p.add_argument("--retries", type=int, default=3, help="429/5xx 重試次數")
     p.add_argument(
-        "--filter-prompt",
-        default=None,
-        help="review filter 的 prompt 檔案路徑。給了才會做第二次呼叫過濾 finding",
-    )
-    p.add_argument(
         "--rules-dir",
         default=None,
         help="分型別補充規則的目錄（prompts/rules）。留空則只用 rubric",
@@ -212,104 +207,6 @@ def chat_completion(
     raise RuntimeError(f"DeepSeek API 連續失敗 {retries + 1} 次：{last_err}")
 
 
-def apply_filter(
-    findings: list[dict],
-    diff: str,
-    filter_prompt: str,
-    base_url: str,
-    api_key: str,
-    model: str,
-    timeout: int,
-    retries: int,
-    thinking: str,
-) -> tuple[list[dict], list[tuple[dict, str]], dict]:
-    """第二次呼叫：只刪掉「diff 有某一行字面反駁它」的 finding。
-
-    回傳 (保留的, [(被刪的, 理由)], usage)。
-
-    設計取捨：**fail-open**。這一層只會讓 finding 消失，不會讓它出現，所以任何
-    異常（API 失敗、JSON 壞掉、index 超出範圍、反證行不在 diff 裡）一律當成
-    「不刪」。寧可留下一筆該刪的，也不要刪掉一筆該留的——前者讀的人自己會判斷，
-    後者他連看都看不到。
-
-    ⚠️ 我們的 filter 只做 alibaba 那份的 Ground B（diff 字面反駁）。
-    他們的 Ground A（finding 指向不存在的 code）在我們這邊已經由 `locate.py`
-    用確定性的字串比對做掉了——片段在 diff 裡找不到就是那個訊號，不必花一次
-    API 呼叫請模型判斷。
-    """
-    if not findings or not filter_prompt.strip():
-        return findings, [], {}
-
-    listing = []
-    for i, f in enumerate(findings):
-        listing.append(
-            f"### finding {i}\n"
-            f"- path: {f['path']}:{f['line']}\n"
-            f"- severity: {f['severity']}\n"
-            f"- title: {f['title']}\n"
-            f"- body: {f['body']}\n"
-            f"- existing_code:\n```\n{f.get('existing_code', '')}\n```"
-        )
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": filter_prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"## Diff\n\n```diff\n{diff}\n```\n\n"
-                    f"## Findings（共 {len(findings)} 筆）\n\n" + "\n\n".join(listing)
-                ),
-            },
-        ],
-        "temperature": 0.0,
-        "max_tokens": 2048,
-        "thinking": {"type": thinking},
-    }
-
-    try:
-        response = chat_completion(base_url, api_key, payload, timeout, retries)
-        content = response["choices"][0]["message"]["content"]
-        verdict = extract_json(content)
-    except (RuntimeError, KeyError, IndexError, ValueError, json.JSONDecodeError) as err:
-        log(f"::warning::review filter 失敗，本次不過濾（{type(err).__name__}: {err}）")
-        return findings, [], {}
-
-    # diff 只正規化一次。放進迴圈的話，每一筆 removal 都要重掃整份 diff——
-    # 而 diff 上限是 400 KB。（2026-09-21 由本 kit 自己 review 這段時報出來的，
-    # 成立並當場修掉。）
-    normalized_diff = locate.normalize_ws(diff)
-
-    removals: dict[int, str] = {}
-    for item in verdict.get("remove") or []:
-        if not isinstance(item, dict):
-            continue
-        try:
-            idx = int(item.get("index"))
-        except (TypeError, ValueError):
-            continue
-        line = str(item.get("contradicting_line") or "").strip()
-        reason = str(item.get("reason") or "").strip()
-        if not (0 <= idx < len(findings)) or not line:
-            continue
-        # 反證行必須真的在 diff 裡。模型宣稱「有一行寫著 X」時，X 必須存在——
-        # 否則就是用一個幻覺刪掉一筆 finding，而那筆 finding 再也不會被看到。
-        #
-        # ⚠️ 比對前先正規化空白，而且用的是 locate 那支同一個函式。原本這裡是原始
-        # 子字串比對，而 locate.py 的片段定位是壓縮空白後比對——兩邊分岔的後果是
-        # 模型複製 YAML／Python 這類縮排敏感的行時，只要空白稍有出入就被判成幻覺，
-        # filter 於是永遠不刪任何東西。那是靜默失效：不報錯、log 看起來也正常。
-        if locate.normalize_ws(line) not in normalized_diff:
-            log(f"[warn] filter 宣稱的反證行不在 diff 裡，忽略此筆刪除：{line[:60]}")
-            continue
-        removals[idx] = reason or "diff 有一行字面反駁"
-
-    kept = [f for i, f in enumerate(findings) if i not in removals]
-    removed = [(f, removals[i]) for i, f in enumerate(findings) if i in removals]
-    return kept, removed, response.get("usage") or {}
-
-
 def extract_json(text: str) -> dict:
     """模型有時仍會包 code fence 或加前後綴，這裡做寬鬆解析。"""
     text = text.strip()
@@ -373,11 +270,7 @@ def normalize(result: dict) -> dict:
     return {"summary": str(result.get("summary") or "").strip(), "verdict": verdict, "findings": findings}
 
 
-def render_markdown(
-    result: dict, meta: dict, model: str, usage: dict, truncated: bool,
-    removed: list[tuple[dict, str]] | None = None,
-) -> str:
-    removed = removed or []
+def render_markdown(result: dict, meta: dict, model: str, usage: dict, truncated: bool) -> str:
     icons = {"blocker": "🛑", "major": "⚠️", "minor": "🔸", "nit": "🔹"}
     labels = {"blocker": "Blocker", "major": "Major", "minor": "Minor", "nit": "Nit"}
     verdict_text = {
@@ -423,19 +316,6 @@ def render_markdown(
             lines += ["</details>", ""]
     else:
         lines += ["_沒有 inline findings。_", ""]
-
-    # 被 filter 刪掉的要留下痕跡。不留就是黑箱：讀的人無法判斷「沒報」是因為
-    # 沒問題，還是因為被第二次呼叫吃掉了。收合起來，預設不干擾閱讀。
-    if removed:
-        lines += [
-            "<details><summary>"
-            f"已過濾掉 {len(removed)} 筆（diff 有一行字面反駁它們）</summary>",
-            "",
-        ]
-        for f, why in removed:
-            lines.append(f"- `{f['path']}:{f['line']}` **{f['severity']}** — {f['title']}")
-            lines.append(f"  - 刪除理由：{why}")
-        lines += ["", "</details>", ""]
 
     notes = []
     if truncated:
@@ -565,39 +445,13 @@ def main() -> int:
 
     usage = response.get("usage") or {}
 
-    # 第二次呼叫：刪掉 diff 能當場證偽的 finding。fail-open，見 apply_filter。
-    removed: list[tuple[dict, str]] = []
-    if args.filter_prompt:
-        filter_prompt = load_text(args.filter_prompt)
-        if not filter_prompt.strip():
-            log(f"::warning::filter prompt 檔案是空的或讀不到：{args.filter_prompt}")
-        else:
-            before = len(result["findings"])
-            result["findings"], removed, filter_usage = apply_filter(
-                result["findings"], raw_diff, filter_prompt,
-                args.base_url, api_key, args.model, args.timeout, args.retries,
-                args.thinking,
-            )
-            for f, why in removed:
-                log(f"[info] filter 刪除 {f['path']}:{f['line']}「{f['title']}」— {why}")
-            log(
-                f"[info] filter：{before} 筆 → 保留 {len(result['findings'])} 筆、"
-                f"刪除 {len(removed)} 筆 ｜ usage={json.dumps(filter_usage)}"
-            )
-            # verdict 依賴 findings，過濾後要重算，否則會出現「verdict 說
-            # request_changes 但一筆 blocker 都沒有」這種對不起來的狀態。
-            if not any(f["severity"] == "blocker" for f in result["findings"]):
-                if result["verdict"] == "request_changes":
-                    result["verdict"] = "comment" if result["findings"] else "approve"
-
     log(
         f"[info] 完成於 {elapsed:.1f}s ｜ findings={len(result['findings'])} "
-        f"｜ relocated={relocated} ｜ filtered={len(removed)} "
-        f"｜ verdict={result['verdict']} ｜ usage={json.dumps(usage)}"
+        f"｜ relocated={relocated} ｜ verdict={result['verdict']} ｜ usage={json.dumps(usage)}"
     )
 
     with open(args.out, "w", encoding="utf-8") as fh:
-        fh.write(render_markdown(result, meta, args.model, usage, truncated, removed))
+        fh.write(render_markdown(result, meta, args.model, usage, truncated))
     with open(args.findings_out, "w", encoding="utf-8") as fh:
         json.dump(result["findings"], fh, ensure_ascii=False, indent=2)
 
@@ -605,7 +459,7 @@ def main() -> int:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as fh:
-            fh.write(render_markdown(result, meta, args.model, usage, truncated, removed) + "\n")
+            fh.write(render_markdown(result, meta, args.model, usage, truncated) + "\n")
 
     return 0
 

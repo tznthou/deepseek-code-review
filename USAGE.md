@@ -238,30 +238,33 @@ file issue」，`--log-failed` 是空的，`actionlint` 也驗不出來——因
 | `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline |
 | `max-inline` | `8` | 其餘降級進摘要 |
 | `typed-rules` | `true` | 依 diff 涵蓋的檔案型態附加補充規則（目前有 GitHub workflow、Python 兩份）。**不增加 API 呼叫次數** |
-| `filter-findings` | `false` | ⛔ **實測會讓 precision 變差，不要開。** 理由見下方 |
 
-### ⛔ `filter-findings` 不要開
+### 曾經有一層「自動過濾誤報」，實測後移除了
 
-這個 input 還在，但**實測結果是負面的**，本 kit 自己的 repo 已經把它關掉。
-
-2026-09-21 用 [AACR-Bench](https://huggingface.co/datasets/Alibaba-Aone/aacr-bench)
-的 700 則人工標註 comment（140 個 PR、10 種語言）評估：
+`v1.1.0` 加過一個 `filter-findings`：第二次呼叫模型，刪掉「diff 裡有某一行字面反駁它」
+的 finding。用 [AACR-Bench](https://huggingface.co/datasets/Alibaba-Aone/aacr-bench)
+的 700 則人工標註 comment 實測之後移除了：
 
 | | 錯誤的 comment | 正確的 comment |
 |---|---|---|
 | 被刪掉 | 4（刪對） | **15（誤刪）** |
 | 保留 | 187 | 494 |
 
-**誤刪是刪對的 3.75 倍**，precision 從 72.71% 掉到 72.54%。15 筆誤刪裡有 9 筆是
-實質的程式缺陷——括號不匹配、陣列重複項導致某個分支永遠不執行、變數賦值錯誤。
+**誤刪是刪對的 3.75 倍**，precision 從 72.71% 掉到 72.54%。15 筆誤刪裡 9 筆是實質的
+程式缺陷——括號不匹配、陣列重複項導致某個分支永遠不執行、變數賦值錯誤。
 那些被無聲吃掉的代價，遠高於留下幾筆雜訊。
 
-要自己重跑（改了 `prompts/review-filter.md` 之後）：
+評估工具留在 `tools/eval/`。你要試自己的想法，可以拿同一套資料量一次誤刪率：
 
 ```bash
-gh workflow run eval-filter.yml -f limit=20    # 試水溫，約 $0.08
-gh workflow run eval-filter.yml -f limit=0     # 全跑 140 個 PR，約 $0.40
+gh workflow run eval-filter.yml \
+  -f filter-prompt=path/to/your-filter.md \
+  -f limit=20      # 試水溫約 $0.08；limit=0 全跑 140 個 PR 約 $0.40
 ```
+
+⚠️ 動手前先算一件事：**你的過濾規則射程內，「不該刪的」和「該刪的」比例是多少？**
+我們事後才發現那個比例是 3.6:1（對的比錯的多三倍），而實測誤刪比是 3.75:1 ——
+**射程內的組成，比模型的判斷力更早決定了上限**。這個估算不用花錢，只要有標註資料。
 
 ---
 

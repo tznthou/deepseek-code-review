@@ -4,7 +4,8 @@
 而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
-[![selftest](https://img.shields.io/badge/selftest-46%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![selftest](https://img.shields.io/badge/selftest-37%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![license](https://img.shields.io/github/license/tznthou/deepseek-code-review?style=flat-square)](LICENSE)
 
 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
 邏輯留在這個 repo，你那邊只放引用（`@v1` 是浮動 tag，這邊修好下次就送到）。
@@ -33,9 +34,9 @@ $ ./review-local.sh origin/main          # 本機先試一次，不碰 GitHub
 
 ### 這個 kit 對自己做過的兩件事
 
-* **停用了自己的一個功能。** `filter-findings`（第二次呼叫過濾誤報）用 700 則人工標註
-  資料實測後發現它**誤刪 15 筆正確的、只刪對 4 筆**，precision 反而變差 → 已停用，
-  評估工具留在 `tools/eval/`，任何人都能重跑（§8）。
+* **砍掉了自己加的一個功能。** 曾經有一層「第二次呼叫過濾誤報」，用 700 則人工標註
+  資料實測後發現它**誤刪 15 筆正確的、只刪對 4 筆**，precision 反而變差 → 整個移除。
+  評估工具留在 `tools/eval/`，任何人都能拿自己的 prompt 重跑（§8）。
 * **不再相信模型報的行號。** 實測 16 筆 finding 只有 **1 筆**真的指向它自己引用的那段
   code，其餘偏移 +1 到 +24 行。現在行號由程式用程式碼片段文字比對算出（§8）。
 
@@ -66,22 +67,23 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │       ├── reusable-codeql.yml             #   別人的 caller 用 @v1 指過來，不必複製腳本
 │       ├── reusable-ai-review-collect.yml  #
 │       ├── reusable-ai-review-post.yml     #
-│       └── eval-filter.yml                 # 手動觸發：用 AACR-Bench 評估 filter（§8）
+│       └── eval-filter.yml                 # 手動觸發：用 AACR-Bench 評估 prompt（§8）
 ├── prompts/
 │   ├── review-rubric.md                    # 04 用的 review playbook（system prompt）
-│   ├── review-filter.md                    # ⛔ filter 的 prompt，實測後已停用（§8）
 │   ├── rules/                              # 依 diff 的檔案型態附加的補充規則
 │   │   ├── github-workflows.md             #   幾乎每條都是這個 repo 自己踩過的坑
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測（11 組 46 項）
+│   ├── selftest.py                         # 不需網路/API key 的自測（10 組 37 項）
 │   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
-│       └── eval_filter.py                  #   算誤刪率／抓錯率
+│       └── eval_filter.py                  #   算誤刪率／抓錯率（prompt 自備）
 ├── review-local.sh                         # 本機跑一次 review，不碰 GitHub
 ├── USAGE.md                                # ⭐ 在別的 repo 導入這套（三步驟，主要路線）
+├── LICENSE                                 # MIT
+├── ACKNOWLEDGMENTS.md                      # 借用了哪些設計想法，以及一則授權更正
 ├── SETUP-CHECKLIST.md                      # 逐項檢查表與每個坑的來龍去脈
 ├── README.md
 └── github-pr-cicd-code-review-research.md  # 選型研究報告
@@ -120,7 +122,8 @@ cat  <kit>/.gitignore >> <your-repo>/.gitignore
 ```
 
 ⚠️ 複製過去之後，`.github/workflows/` 裡那四支 `reusable-*.yml` 和 `eval-filter.yml`
-對你沒用（前者是給別人引用的實作，後者是本 kit 的評估工具），可以刪掉。
+對你沒用（前者是給別人引用的實作，後者是評估工具），可以刪掉。
+MIT 授權要求保留版權聲明，所以 `LICENSE` 的內容請一併帶過去或在你的 NOTICE 裡標明。
 
 ⚠️ **最後那行別跳過。** 這個 kit 需要 `DEEPSEEK_API_KEY`，而 2026-09-20 實測：
 沒有這幾條規則時，`.env`、`*.key`、`.DS_Store`、`.claude/` 全都會被 `git add -A` 直接收進去。
@@ -626,8 +629,8 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   當時的 agent session 拿不到 API key，後來補跑了。實測數據見 §4。
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
-* `python3 tools/selftest.py` **11 組 46 項斷言全通過**。
-* ⛔ **`filter-findings` 實測：它讓 precision 變差，已停用**（2026-09-21，
+* `python3 tools/selftest.py` **10 組 37 項斷言全通過**。
+* ⛔ **試過一層「過濾誤報」，實測讓 precision 變差，已整個移除**（2026-09-21，
   用 [AACR-Bench](https://huggingface.co/datasets/Alibaba-Aone/aacr-bench) 的
   **700 則人工標註 comment**、140 個 PR、10 種語言，成本 $0.40。
   重跑方式：`gh workflow run eval-filter.yml -f limit=0`）。
@@ -758,10 +761,9 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   但「加了 workflow／Python 規則之後，finding 的成立率有沒有變高」需要 A/B，
   而本工具不可重現，單次跑證明不了因果——要做得照 `tools/eval/` 那套，
   用標註資料跑固定分母的對照。
-* **`filter-findings` 每次都是完整的 cache miss。** 它用的是另一份 system prompt
-  （`review-filter.md`），實測 `prompt_cache_hit_tokens: 0`。這是它的額外成本裡
-  容易被忽略的一塊：不只是多一次呼叫，而是多一次**沒有 cache 折扣**的呼叫。
-  （該功能已停用，這條留著是因為「換 system prompt 就失去 cache」這件事本身值得記。）
+* **換一份 system prompt 就完全失去 cache。** 那層過濾用的是另一份 system prompt，
+  實測 `prompt_cache_hit_tokens: 0`。這條留著是因為它本身值得記：
+  多一次呼叫的成本，不只是「多一次」，而是多一次**沒有 cache 折扣**的呼叫。
 * **§4.7／§4.9 的 rubric 變體比較全部是單次跑，不是統計結論。** 本工具不可重現
   （見下方「已知的不穩定」），所以「改了 X 之後結果變 Y」**證明不了 X 導致 Y**。
   這些表格裡唯一經過多次重複的是「缺測試那條幾乎不觸發」（10 次跑裡 8 次 0 筆）；
