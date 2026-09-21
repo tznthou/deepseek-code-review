@@ -31,6 +31,9 @@ import time
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import locate  # noqa: E402  （同目錄模組，必須在 sys.path 調整之後 import）
+
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 # 2026-09-19 實測（同一份 diff、同樣 thinking=disabled）：
 #   deepseek-flash   ccRecall #129（shell）5 筆 finding，其中一筆的 4 個技術斷言錯了 3 個；
@@ -182,17 +185,23 @@ def normalize(result: dict) -> dict:
         if not isinstance(item, dict):
             continue
         path = str(item.get("path") or "").strip()
+        existing_code = str(item.get("existing_code") or "").strip()
         try:
             line = int(item.get("line"))
         except (TypeError, ValueError):
-            continue
+            # 行號給不出來不再是丟棄條件：定位主要靠 existing_code 的文字比對
+            # （見 .github/scripts/locate.py），line 只是備援。留 0 讓下游去定位。
+            line = 0
         severity = str(item.get("severity") or "minor").lower()
         try:
             confidence = float(item.get("confidence", 0.7))
         except (TypeError, ValueError):
             confidence = 0.7
         side = str(item.get("side") or "RIGHT").upper()
-        if not path or line <= 0 or severity not in VALID_SEVERITIES:
+        # 一筆 finding 至少要有一種定位依據：程式碼片段或行號。兩個都沒有就丟掉。
+        if not path or severity not in VALID_SEVERITIES:
+            continue
+        if line <= 0 and not existing_code:
             continue
         findings.append(
             {
@@ -203,6 +212,7 @@ def normalize(result: dict) -> dict:
                 "confidence": round(max(0.0, min(1.0, confidence)), 2),
                 "title": str(item.get("title") or "").strip()[:200],
                 "body": str(item.get("body") or "").strip(),
+                "existing_code": existing_code,
                 "evidence": str(item.get("evidence") or "").strip(),
             }
         )
@@ -362,10 +372,27 @@ def main() -> int:
         log(f"[error] 無法解析模型輸出：{err}\n--- 原始輸出 ---\n{content[:2000]}")
         return 2
 
+    # 定位要在產出 review.md **之前**做：摘要表格裡的 `path:line` 與稍後貼出去的
+    # inline comment 必須指同一個位置。先前把定位放在下游的 post_review，結果是
+    # inline 貼在修正後的行、摘要卻還印著模型原本報的行號。
+    # 用未截斷的 raw_diff：送去給模型的 diff 可能被 truncate 砍過，
+    # 拿被砍過的版本定位會把落在後半段的 finding 全部判成「找不到」。
+    relocated = 0
+    index = locate.index_diff(raw_diff)
+    for finding in result["findings"]:
+        model_line = finding.get("line")
+        resolved, how = locate.resolve_line(finding, index)
+        if resolved is not None and resolved != model_line:
+            log(f"[info] 重新定位 {finding['path']}:{model_line} → {resolved}（{how}）")
+            finding["line"] = resolved
+            relocated += 1
+        elif resolved is None:
+            log(f"[info] 定位不到 {finding['path']}:{model_line}（{how}）")
+
     usage = response.get("usage") or {}
     log(
         f"[info] 完成於 {elapsed:.1f}s ｜ findings={len(result['findings'])} "
-        f"｜ verdict={result['verdict']} ｜ usage={json.dumps(usage)}"
+        f"｜ relocated={relocated} ｜ verdict={result['verdict']} ｜ usage={json.dumps(usage)}"
     )
 
     with open(args.out, "w", encoding="utf-8") as fh:
