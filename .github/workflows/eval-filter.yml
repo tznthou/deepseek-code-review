@@ -1,0 +1,63 @@
+# 用 AACR-Bench 評估 review filter — 手動觸發，不會自己跑
+#
+# 為什麼要有這支：`filter-findings` 預設關閉，理由是「效果沒有分布資料」。
+# 這支就是去產生那個資料的。改了 `prompts/review-filter.md` 之後可以直接重跑，
+# 看誤刪率有沒有變差。
+#
+# 需要的 secret：DEEPSEEK_API_KEY（與 04 同一把）
+#
+# ⚠️ 會花 API 費用。全跑 140 個 PR 約 $0.5；先用 limit 試水溫。
+
+name: eval filter (AACR-Bench)
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 只跑前 N 個 PR（0 = 全部，約 140 個 / $0.5）
+        required: false
+        type: string
+        default: '20'
+      model:
+        description: 模型
+        required: false
+        type: choice
+        options: [deepseek-v4-pro, deepseek-flash]
+        default: deepseek-v4-pro
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: 建評估集（下載資料集 + 抓 PR diff）
+        env:
+          # build_eval_set.py 用 `gh api` 抓外部 public repo 的 diff
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVAL_LIMIT: ${{ inputs.limit }}
+        run: python3 tools/eval/build_eval_set.py
+
+      - name: 跑評估
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          # 值走 env 再由 shell 展開，不要把 expression 內插進 run block
+          python3 tools/eval/eval_filter.py --model "$MODEL"
+
+      - name: 上傳明細
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eval-result-${{ github.run_id }}
+          path: |
+            tools/eval/eval_result.json
+            tools/eval/eval_set.json
+          if-no-files-found: warn
