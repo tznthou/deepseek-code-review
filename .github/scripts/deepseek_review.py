@@ -110,7 +110,51 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="review filter 的 prompt 檔案路徑。給了才會做第二次呼叫過濾 finding",
     )
+    p.add_argument(
+        "--rules-dir",
+        default=None,
+        help="分型別補充規則的目錄（prompts/rules）。留空則只用 rubric",
+    )
     return p.parse_args()
+
+
+# 依 diff 涵蓋的檔案型態，附加對應的補充規則。
+# 順序有意義：先命中的先用，所以 workflow YAML 要排在一般 YAML 之前。
+#
+# ⚠️ 這裡刻意**沒有** default 規則檔。alibaba/open-code-review 有一份 default.md，
+# 是因為他們的 system prompt 只有 25 行、通用規則放在 default.md 裡；我們的
+# `review-rubric.md` 本身就是那份通用規則。再放一份 default 只會是重複內容，
+# 而且 rubric 是 system prompt、吃 context caching，重複的部分等於白付 token。
+RULE_MAP: list[tuple[str, str]] = [
+    (r"^\.github/workflows/.+\.ya?ml$", "github-workflows.md"),
+    (r"\.pyi?$", "python.md"),
+]
+
+
+def select_rules(diff_text: str, rules_dir: str) -> tuple[str, list[str]]:
+    """依 diff 裡出現的檔案挑補充規則，回傳 (合併後的文字, 用到的檔名)。
+
+    規則走 **user message** 而不是 system prompt：system prompt 保持逐字不變才
+    命中得到 DeepSeek 的 context caching（cache hit 的輸入單價是 miss 的 1/50），
+    而補充規則會隨 diff 的檔案型態變動，放進 system prompt 等於每次都讓前綴改變。
+    """
+    if not rules_dir or not os.path.isdir(rules_dir):
+        return "", []
+
+    paths = set(re.findall(r"^diff --git a/.+ b/(.+)$", diff_text, re.M))
+    picked: list[str] = []
+    for pattern, filename in RULE_MAP:
+        if any(re.search(pattern, p) for p in paths) and filename not in picked:
+            picked.append(filename)
+
+    chunks: list[str] = []
+    used: list[str] = []
+    for filename in picked:
+        text = load_text(os.path.join(rules_dir, filename))
+        if text.strip():
+            chunks.append(text.strip())
+            used.append(filename)
+    return "\n\n---\n\n".join(chunks), used
 
 
 def load_text(path: str | None) -> str:
@@ -440,6 +484,16 @@ def main() -> int:
         head_sha=str(meta.get("head_sha", "?"))[:12],
         diff=diff,
     )
+
+    # 補充規則接在 diff 後面。放 user message 不放 system prompt：後者要逐字不變
+    # 才命中得到 context caching，而這段會隨 diff 的檔案型態變動。
+    extra_rules, used_rules = select_rules(raw_diff, args.rules_dir)
+    if extra_rules:
+        user_prompt += (
+            "\n\n## 這次改動涉及的檔案型態，有以下補充規則\n\n"
+            "這些規則補充上面的通用要求，不取代它們。\n\n" + extra_rules + "\n"
+        )
+        log(f"[info] 套用補充規則：{', '.join(used_rules)}")
 
     payload = {
         "model": args.model,

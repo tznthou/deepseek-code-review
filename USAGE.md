@@ -237,6 +237,7 @@ file issue」，`--log-failed` 是空的，`actionlint` 也驗不出來——因
 | `model` | `deepseek-v4-pro` | 只有這個與 `deepseek-flash` 是合法值 |
 | `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline |
 | `max-inline` | `8` | 其餘降級進摘要 |
+| `typed-rules` | `true` | 依 diff 涵蓋的檔案型態附加補充規則（目前有 GitHub workflow、Python 兩份）。**不增加 API 呼叫次數** |
 | `filter-findings` | `false` | 開啟後**多一次 API 呼叫**，刪掉「diff 裡有某一行字面反駁它」的 finding。預設關閉的理由見下方 |
 
 `filter-findings` 值不值得開，取決於你怎麼用這個工具：

@@ -59,6 +59,15 @@ on:
         required: false
         type: string
         default: ai-review-input
+      typed-rules:
+        description: >-
+          依 diff 涵蓋的檔案型態，附加對應的補充規則（目前有 GitHub workflow 與 Python 兩份）。
+          預設開啟：它**不增加 API 呼叫次數**，只是在 diff 真的含有那些型態時讓 user message
+          變長一點，而規則走 user message 不走 system prompt，不影響 context caching 的命中。
+          設成 false 就只用 rubric。
+        required: false
+        type: boolean
+        default: true
       filter-findings:
         description: >-
           開啟後會多做一次 API 呼叫，刪掉「diff 裡有某一行字面反駁它」的 finding。
@@ -156,10 +165,14 @@ jobs:
           DEEPSEEK_MODEL: ${{ inputs.model }}
           RUBRIC_PATH: ${{ steps.rubric.outputs.path }}
           FILTER_FINDINGS: ${{ inputs.filter-findings }}
+          TYPED_RULES: ${{ inputs.typed-rules }}
         run: |
           # 值一律走 env 再由 shell 展開，不要把 expression 直接內插進 run block
           ARGS=(--diff in/pr.diff --meta in/meta.json --rubric "$RUBRIC_PATH"
                 --out review.md --findings-out findings.json)
+          if [ "$TYPED_RULES" = "true" ]; then
+            ARGS+=(--rules-dir .kit/prompts/rules)
+          fi
           if [ "$FILTER_FINDINGS" = "true" ]; then
             ARGS+=(--filter-prompt .kit/prompts/review-filter.md)
           fi

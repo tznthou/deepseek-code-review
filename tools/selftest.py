@@ -291,6 +291,41 @@ def main() -> int:
     check("被 filter 刪掉的有列進 review.md", "被刪的" in md_f and "理由X" in md_f)
     check("過濾區塊是收合的", "<details>" in md_f or "<details><summary>" in md_f)
 
+    print("[11] select_rules：依 diff 的檔案型態挑補充規則")
+    RULES = ROOT / "prompts/rules"
+    text, used = reviewer.select_rules(SAMPLE_DIFF, str(RULES))
+    check("純 ts/markdown 的 diff 不套任何補充規則", used == [], used)
+
+    wf_diff = "diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n+  run: echo hi\n"
+    text, used = reviewer.select_rules(wf_diff, str(RULES))
+    check("workflow 檔案套到 github-workflows.md", used == ["github-workflows.md"], used)
+    check("規則內容真的被讀進來", "pull_request_target" in text, len(text))
+
+    py_diff = "diff --git a/tools/x.py b/tools/x.py\n+import os\n"
+    text, used = reviewer.select_rules(py_diff, str(RULES))
+    check("py 檔案套到 python.md", used == ["python.md"], used)
+
+    both = wf_diff + py_diff
+    text, used = reviewer.select_rules(both, str(RULES))
+    check("混合 diff 兩份都套且不重複", used == ["github-workflows.md", "python.md"], used)
+
+    # 一般 YAML 不該吃到 workflow 規則——順序敏感，RULE_MAP 靠 pattern 而非副檔名
+    plain_yaml = "diff --git a/config/app.yml b/config/app.yml\n+key: v\n"
+    _, used = reviewer.select_rules(plain_yaml, str(RULES))
+    check("非 workflow 的 yml 不套 workflow 規則", used == [], used)
+
+    _, used = reviewer.select_rules(wf_diff, "/nonexistent/dir")
+    check("規則目錄不存在時安靜跳過", used == [], used)
+
+    # 補充規則是 prompt，裡面不能有寫給人看的元評論——那會進到模型的輸入裡
+    for rf in sorted(RULES.glob("*.md")):
+        body = rf.read_text(encoding="utf-8")
+        check(
+            f"{rf.name} 沒有元評論標記",
+            not re.search(r"(實測無效|待驗證|TODO|FIXME|這條沒用|先留著)", body),
+            rf.name,
+        )
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")
