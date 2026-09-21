@@ -15,7 +15,7 @@
 環境變數：
   DEEPSEEK_API_KEY    必填
   DEEPSEEK_BASE_URL   預設 https://api.deepseek.com
-  DEEPSEEK_MODEL      預設 deepseek-flash
+  DEEPSEEK_MODEL      預設 deepseek-v4-pro（見 DEFAULT_MODEL 上方的實測註解）
 
 離開碼：0 成功；1 設定/API 錯誤；2 模型回傳無法解析。
 """
@@ -205,6 +205,35 @@ def chat_completion(
             time.sleep(min(2 ** attempt * 2, 30))
 
     raise RuntimeError(f"DeepSeek API 連續失敗 {retries + 1} 次：{last_err}")
+
+
+def truncation_error(
+    finish_reason: str | None, content: str | None, max_tokens: int, thinking: str
+) -> str | None:
+    """輸出被 max_tokens 砍斷時回傳該印的訊息，沒砍斷回 None。
+
+    2026-09-21 實測：diff 只有 104 行但缺陷密度高，模型吐到第三筆 finding 的
+    evidence 欄位就用完 max_tokens=8192。JSON 格式其實完全正確，只是少了尾巴，
+    於是下游的 extract_json 報「回應中找不到 JSON 物件」——症狀指向格式，
+    真因是長度，而 token 錢照算。
+
+    抽成獨立函式是為了測得到：這條路徑要花一次真實 API 呼叫才會發生。
+    """
+    if finish_reason != "length":
+        return None
+    content = content or ""
+    # thinking 只要開著就是首要嫌疑，不看 content 空不空：2026-09-19 實測
+    # max-tokens 給到 32768 仍被截斷（reasoning 自己用掉 31408），那次 content
+    # 是有東西的。只按「content 空不空」分流會在這種情況下給錯建議。
+    if thinking != "disabled":
+        hint = (
+            f"thinking={thinking} 的 reasoning tokens 與輸出共用 max_tokens。"
+            "先改用 --thinking disabled；要保留 reasoning 就把 --max-tokens "
+            "拉到 65536 以上（實測 32768 仍會被 reasoning 吃光）"
+        )
+    else:
+        hint = "重跑並把 --max-tokens 調高，或用 --max-diff-chars 縮小送出的 diff"
+    return f"輸出被 max_tokens={max_tokens} 截斷（content {len(content)} 字元）。{hint}"
 
 
 def extract_json(text: str) -> dict:
@@ -415,10 +444,19 @@ def main() -> int:
     elapsed = time.time() - started
 
     try:
-        content = response["choices"][0]["message"]["content"]
+        choice = response["choices"][0]
+        content = choice["message"]["content"]
     except (KeyError, IndexError) as err:
         log(f"[error] 非預期回應格式：{str(response)[:500]}")
         raise SystemExit(1) from err
+
+    # 截斷要在解析之前判掉，否則半截的 JSON 只會被報成「找不到 JSON 物件」。
+    trunc_err = truncation_error(
+        choice.get("finish_reason"), content, args.max_tokens, args.thinking
+    )
+    if trunc_err:
+        log(f"[error] {trunc_err}")
+        return 2
 
     try:
         result = normalize(extract_json(content))

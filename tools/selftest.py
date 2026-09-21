@@ -287,6 +287,51 @@ def main() -> int:
             rf.name,
         )
 
+    print("[11] truncation_error：輸出被 max_tokens 砍斷要講實話，不要讓它偽裝成解析失敗")
+    check(
+        "正常結束不報錯",
+        reviewer.truncation_error("stop", '{"summary":"x"}', 8192, "disabled") is None,
+    )
+    check(
+        "沒有 finish_reason 不報錯",
+        reviewer.truncation_error(None, '{"summary":"x"}', 8192, "disabled") is None,
+    )
+    cut = reviewer.truncation_error("length", '{"summary":"半截', 8192, "disabled")
+    check("截斷時回傳訊息", cut is not None, cut)
+    check("訊息點出 max_tokens 與數值", cut is not None and "max_tokens=8192" in cut, cut)
+    check("訊息給的是調高額度的指示", cut is not None and "--max-tokens" in cut, cut)
+    # thinking 開啟時 reasoning tokens 與輸出共用額度，content 會是空字串——
+    # 同樣是 finish_reason=length，但要修的地方不一樣。
+    empty = reviewer.truncation_error("length", "", 8192, "high")
+    check(
+        "thinking 吃光額度時指向 thinking 而不是 max_tokens",
+        empty is not None and "--thinking disabled" in empty,
+        empty,
+    )
+    check(
+        "thinking=disabled 但內容空白時仍走一般訊息",
+        (reviewer.truncation_error("length", "", 8192, "disabled") or "").find("--max-tokens") != -1,
+    )
+    # 2026-09-19 實測：max-tokens 給到 32768 仍被 reasoning 吃光（用掉 31408），
+    # 而那次 content 是有東西的。只按「content 空不空」分流會在這裡給錯建議。
+    partial = reviewer.truncation_error("length", '{"summary":"半截', 8192, "high")
+    check(
+        "thinking 開著且已有部分輸出時仍指向 thinking",
+        partial is not None and "--thinking disabled" in partial,
+        partial,
+    )
+    # content 在 OpenAI 相容回應裡可能是 null，不能讓偵測本身先崩掉
+    none_content = reviewer.truncation_error("length", None, 8192, "disabled")
+    check("content 為 None 時不崩潰且仍回訊息", none_content is not None, none_content)
+
+    print("[12] review-local.sh：本機入口的參數必須跟 CI 對齊")
+    local_sh = (ROOT / "review-local.sh").read_text(encoding="utf-8")
+    # 少了 --rules-dir，同一份 diff 在本機與 CI 會得到不同結果，而兩邊都不提示。
+    check("有傳 --rules-dir", "--rules-dir" in local_sh, "review-local.sh")
+    check("指向 prompts/rules", "prompts/rules" in local_sh, "review-local.sh")
+    # 截斷訊息叫使用者調高 --max-tokens，本機入口就必須真的調得動。
+    check("--max-tokens 可由環境變數覆寫", "MAX_TOKENS" in local_sh, "review-local.sh")
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")
