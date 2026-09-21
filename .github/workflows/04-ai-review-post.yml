@@ -36,10 +36,8 @@ permissions:
 jobs:
   post:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
-    with:
-      # 本 repo 自己開，外部使用者預設關。要收集「它到底刪不刪、刪了對不對」的
-      # 多次分布資料，只能讓它在真實 PR 上實際跑——而承擔未驗功能的風險應該是我們，
-      # 不是裝這套 kit 的人。
-      filter-findings: true
+    # ⚠️ 2026-09-21：`filter-findings` 已關掉，理由見 README §4。
+    # 用 AACR-Bench 實測的結果是它讓 precision 變差——誤刪 4 筆正確的、
+    # 只刪對 1 筆錯的。在有更好的證據之前不要再打開。
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
