@@ -29,7 +29,10 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["index_diff", "extract_snippets", "locate_snippet", "resolve_line", "normalize_ws"]
+__all__ = [
+    "index_diff", "extract_snippets", "literal_snippets",
+    "locate_snippet", "resolve_line", "normalize_ws",
+]
 
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 _GIT_HEADER = re.compile(r" b/(.+)$")
@@ -92,32 +95,54 @@ def normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
-def extract_snippets(*sources: str) -> list[str]:
-    """從 finding 的文字欄位裡抽出候選程式碼片段，依可信度排序。
+def _dedupe(candidates: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for s in candidates:
+        s = s.strip()
+        if len(s) >= MIN_SNIPPET_LEN and s not in seen:
+            seen.add(s)
+            result.append(s)
+    return result
 
-    `existing_code` 欄位（rubric 要求模型逐字複製的那段）最可信，直接整段拿來用；
-    evidence / body 則是散文夾程式碼，只能把引號與反引號裡的東西挖出來。
+
+def literal_snippets(text: str) -> list[str]:
+    """把 `existing_code` 當成**整段逐字程式碼**，絕不挖引號。
+
+    ⚠️ 這支存在的唯一理由，是 2026-09-21 真實環境抓到的一個定位錯誤：
+    模型逐字複製了一段 Python，而那段的 docstring 裡本身含有 markdown 反引號
+    （``deepseek_review.apply_filter``）。當時 `existing_code` 與 evidence 走同一條
+    路徑，看到反引號就判定「這是散文夾程式碼」，去挖反引號裡的內容當片段——
+    於是拿 `deepseek_review.apply_filter` 去比對，命中了 docstring 裡提到它的那一行，
+    而不是該段程式碼的開頭。**定位到一個看起來合理、實際上錯了 3 行的位置。**
+
+    程式碼裡出現反引號是完全正常的（docstring、註解、字串常值），所以判斷「這是
+    程式碼還是散文」不能靠內容猜，要靠**它來自哪個欄位**。
+    """
+    text = (text or "").strip()
+    return _dedupe([text]) if text else []
+
+
+def extract_snippets(*sources: str) -> list[str]:
+    """從**散文欄位**（evidence / body）裡挖出候選程式碼片段。
+
+    這些欄位是自然語言夾雜程式碼引用，只能把括起來的部分挖出來。
     實測模型愛用的兩種括法：中文書名號『』與 markdown 反引號。
+
+    ⚠️ 不要拿這支處理 `existing_code`——那是整段逐字程式碼，用 literal_snippets。
     """
     out: list[str] = []
     for src in sources:
         if not src:
             continue
         stripped = src.strip()
-        # 整段就是程式碼（existing_code 的情況）：直接收，不必挖引號。
+        # 整段沒有任何引號標記時，它本身就是要找的東西。
         if stripped and "『" not in stripped and "`" not in stripped:
             out.append(stripped)
             continue
         out.extend(m.group(1) for m in re.finditer(r"『(.+?)』", src, re.S))
         out.extend(m.group(1) for m in re.finditer(r"`([^`]+)`", src))
-    seen: set[str] = set()
-    result: list[str] = []
-    for s in out:
-        s = s.strip()
-        if len(s) >= MIN_SNIPPET_LEN and s not in seen:
-            seen.add(s)
-            result.append(s)
-    return result
+    return _dedupe(out)
 
 
 def locate_snippet(
@@ -156,8 +181,9 @@ def resolve_line(
     找不到就是找不到，不會像模型那樣硬掰一個答案出來。
     """
     path = finding.get("path", "")
-    snippets = extract_snippets(
-        finding.get("existing_code", ""),
+    # existing_code 是整段逐字程式碼、且最可信，排在最前面且不挖引號；
+    # evidence / body 是散文，只能挖出被引號括起來的部分。兩者不能走同一條路徑。
+    snippets = literal_snippets(finding.get("existing_code", "")) + extract_snippets(
         finding.get("evidence", ""),
         finding.get("body", ""),
     )
