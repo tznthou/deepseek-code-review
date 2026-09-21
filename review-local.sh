@@ -7,6 +7,11 @@
 #   ./review-local.sh origin/develop  # 指定 base ref
 #   ./review-local.sh HEAD~3          # 也可以只比最近三個 commit
 #
+# 環境變數：
+#   DEEPSEEK_MODEL  模型（預設 deepseek-v4-pro）
+#   MAX_TOKENS      輸出上限（預設 8192）。缺陷密度高的 diff 會吐超過這個額度，
+#                   被截斷時腳本會直接告訴你要調高，不會偽裝成解析失敗。
+#
 # 產出：/tmp/deepseek-review.md（人看）與 /tmp/deepseek-findings.json（機器看）
 
 set -euo pipefail
@@ -44,10 +49,15 @@ fi
   echo '}'
 } > "${TMPDIR:-/tmp}/deepseek-meta.json"
 
+# --rules-dir 必須傳：CI 走 reusable workflow 時 typed-rules 預設開啟，
+# 本機少了這個參數就不會套 prompts/rules/*.md，同一份 diff 在本機與 CI 會得到
+# 不一樣的結果，而且兩邊都不會提示。2026-09-21 實測踩過一次。
 python3 "$SCRIPT_DIR/.github/scripts/deepseek_review.py" \
   --diff "$DIFF_FILE" \
   --meta "${TMPDIR:-/tmp}/deepseek-meta.json" \
   --rubric "$SCRIPT_DIR/prompts/review-rubric.md" \
+  --rules-dir "$SCRIPT_DIR/prompts/rules" \
+  --max-tokens "${MAX_TOKENS:-8192}" \
   --out "$OUT_MD" \
   --findings-out "$OUT_JSON"
 

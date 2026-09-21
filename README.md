@@ -4,7 +4,7 @@
 而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
-[![selftest](https://img.shields.io/badge/selftest-37%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![selftest](https://img.shields.io/badge/selftest-47%20passing-brightgreen?style=flat-square)](tools/selftest.py)
 [![license](https://img.shields.io/github/license/tznthou/deepseek-code-review?style=flat-square)](LICENSE)
 
 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
@@ -75,13 +75,14 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測（10 組 37 項）
+│   ├── selftest.py                         # 不需網路/API key 的自測（12 組 47 項）
 │   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
 │       └── eval_filter.py                  #   算誤刪率／抓錯率（prompt 自備）
 ├── review-local.sh                         # 本機跑一次 review，不碰 GitHub
 ├── USAGE.md                                # ⭐ 在別的 repo 導入這套（三步驟，主要路線）
+├── CHANGELOG.md                            # 版本變更紀錄（含 v1 浮動 tag 的破壞性變更標記）
 ├── LICENSE                                 # MIT
 ├── ACKNOWLEDGMENTS.md                      # 借用了哪些設計想法，以及一則授權更正
 ├── SETUP-CHECKLIST.md                      # 逐項檢查表與每個坑的來龍去脈
@@ -828,3 +829,54 @@ GitHub 貼 PR review comment 有兩條路，而它們是互斥的：
 
 2026-09-20 的實測證明冪等性真的在運作：第二輪 DeepSeek **重報了同一個位置**，
 而那筆 inline comment 沒有被貼第二次。不是「它沒再報」，是「它再報了但被擋住」。
+
+---
+
+## 9. 隨想：為什麼會有這個 repo
+
+起點是三件事——兩件很實際，一件到現在也說不太清楚。
+
+一是等待。用 CodeRabbit 的時候，相當多的時間花在等 rate limit——送出 PR，
+等到能看結果時人已經在做別的事了。code review 的價值有一大半在「當下」，
+隔開之後它就只是另一件待辦。
+
+二是成本。直接用 Claude Code 做 review 的品質是夠的，但把一份中型 PR 的 diff 送進去，
+token 消耗是實打實的。要變成「每個 PR 都自動跑一次」的流程，那個量級撐不住。
+
+三是一種說不上來的彆扭：**用 Claude Code 去審 Claude Code 自己寫的 code，
+總有點監守自盜的味道。** 寫的時候它判斷這樣可以，審的時候還是同一套判斷在跑——
+它會不會剛好看不見它自己那一類的盲點？審得再仔細，有些東西可能從一開始就不在視野裡。
+
+這個疑慮我們沒有做過對照實驗（同一份 code，寫的人審 vs 別人審），所以它在這裡
+只是動機，不是結論——這份 README 其他地方的斷言都有數字，這一條沒有。
+
+比較直接的解法是換更強的模型來審，或者乾脆多跑幾家再交叉比對。這確實有效，
+不同來源會抓到對方沒看到的東西。但那種做法的成本結構屬於「你會盯著看的那幾次」，
+而這裡要解的是「每個 PR 都自動跑一次」——同一件事換成這個頻率，可負擔的單價
+完全不是同一回事（這裡的費用估算見 §3）。
+
+三件事於是收束成同一個限制條件：**審 code 的最好不要是寫 code 的那一個，
+而且要便宜到每個 PR 都跑得起。** 這個 repo 就是在這兩個條件的交集裡找答案。
+
+做到一半才發現，真正的問題不在那裡——**這種工具到底有沒有效？**
+
+這比「怎麼做」難答得多，而且有個很好掉進去的陷阱：**AI review 永遠給得出東西。**
+它總是報得出幾筆 finding，語氣還很篤定。難的不是讓它產出，是分辨那是「看懂了」
+還是「填空」。而且這件事沒有語言訊號——一筆錯的 finding 和一筆對的，讀起來一樣有道理。
+
+所以這個 repo 的重心後來從「做一個工具」偏向「量這個工具」：
+
+- §4 記的是實測，包含 markdown 標的上 **16 筆只有 1 筆成立**這種難看的數字
+- §8 明寫哪些驗過、哪些沒驗、哪些已知不穩定
+- `tools/eval/` 是評估框架而不是功能，存在的唯一理由是讓下一個想法先被量過再上線
+- 它砍掉過自己加的 review filter——700 則人工標註資料顯示那一層讓 precision 變差
+
+如果這個 repo 有什麼值得看的，大概不是「又一個 AI code review 工具」。這個品類已經很擠，
+[alibaba/open-code-review](https://github.com/alibaba/open-code-review) 的功能更完整，
+[hustcer/deepseek-review](https://github.com/hustcer/deepseek-review) 也在做同一件事。
+值得看的應該是它對自己留下的實測紀錄：這類工具在什麼標的上真的有用、在什麼標的上會空手而回、
+以及怎麼分辨這兩者。
+
+這題還沒答完。§8 的「未驗證」那節就是還欠的部分。
+
+— 子超
