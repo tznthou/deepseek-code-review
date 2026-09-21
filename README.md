@@ -35,15 +35,24 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   ├── codeql/codeql-config.yml            # CodeQL 查詢設定（security-and-quality）
 │   ├── scripts/
 │   │   ├── deepseek_review.py              # diff → DeepSeek → review.md + findings.json（純標準庫）
+│   │   ├── locate.py                       # 行號由片段文字比對算出，不信模型自報的（見 §8）
 │   │   └── post_review.py                  # 驗證行號 → 冪等貼回 PR（摘要 + inline comments）
 │   └── workflows/
-│       ├── 01-static-review.yml            # reviewdog + gitleaks + dependency-review（不花 token）
+│       ├── 01-static-review.yml            # ↓ 這五支是本 repo 自己的 caller（dogfood）
 │       ├── 02-codeql.yml                   # CodeQL SAST + Trivy → SARIF → code scanning
 │       ├── 03-ai-review-collect.yml        # 不受信任段：只產 diff artifact，零 secret
 │       ├── 04-ai-review-post.yml           # 受信任段：workflow_run 觸發，呼叫模型並貼留言
-│       └── 05-dsh-agent-review.yml         # ⛔ 評估紀錄，不建議採用（見 §4.6）
+│       ├── 05-dsh-agent-review.yml         # ⛔ 評估紀錄，不建議採用（見 §4.6）
+│       ├── reusable-static-review.yml      # ↓ 這四支是給別的 repo 引用的實作（USAGE.md）
+│       ├── reusable-codeql.yml             #   別人的 caller 用 @v1 指過來，不必複製腳本
+│       ├── reusable-ai-review-collect.yml  #
+│       └── reusable-ai-review-post.yml     #
 ├── prompts/
 │   ├── review-rubric.md                    # 04 用的 review playbook（system prompt）
+│   ├── review-filter.md                    # 第二次呼叫用：只刪 diff 能當場證偽的 finding
+│   ├── rules/                              # 依 diff 的檔案型態附加的補充規則
+│   │   ├── github-workflows.md             #   幾乎每條都是這個 repo 自己踩過的坑
+│   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
 │   ├── selftest.py                         # 不需網路/API key 的自測
