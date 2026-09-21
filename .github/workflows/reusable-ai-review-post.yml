@@ -70,11 +70,10 @@ on:
         default: true
       filter-findings:
         description: >-
-          開啟後會多做一次 API 呼叫，刪掉「diff 裡有某一行字面反駁它」的 finding。
-          預設關閉：它多花一次呼叫的錢，而且效果尚未有多次實測的分布可佐證。
-          設計上是 fail-open —— 任何異常（API 失敗、回傳無法解析、模型宣稱的反證行
-          根本不在 diff 裡）都當成不刪，所以最壞情況是「沒過濾」而不是「誤刪」。
-          被刪掉的 finding 仍會收合列在 review 摘要底部，不會無聲消失。
+          ⛔ 不要開。2026-09-21 用 AACR-Bench 的 700 則人工標註 comment 實測：
+          誤刪 15 筆正確的、只刪對 4 筆錯的，precision 從 72.71% 掉到 72.54%。
+          15 筆誤刪裡 9 筆是實質的程式缺陷。保留這個 input 是為了讓改進後能重跑
+          評估（tools/eval/），不是建議使用。詳見 README 的 filter-findings 實測。
         required: false
         type: boolean
         default: false

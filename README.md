@@ -551,8 +551,36 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   當時的 agent session 拿不到 API key，後來補跑了。實測數據見 §4。
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
-* `python3 tools/selftest.py` **9 組 25 項斷言全通過**（`[8]` 靜態檢查 `--repo`、
-  `[9]` 定位機制七條 + 摘要一致性兩條後重跑仍全綠）。
+* `python3 tools/selftest.py` **11 組 46 項斷言全通過**。
+* ⛔ **`filter-findings` 實測：它讓 precision 變差，已停用**（2026-09-21，
+  用 [AACR-Bench](https://huggingface.co/datasets/Alibaba-Aone/aacr-bench) 的
+  **700 則人工標註 comment**、140 個 PR、10 種語言，成本 $0.40。
+  重跑方式：`gh workflow run eval-filter.yml -f limit=0`）。
+
+  | | label=0（錯誤的 comment） | label=1（正確的 comment） |
+  |---|---|---|
+  | **被 filter 刪掉** | 4（刪對） | **15（誤刪）** |
+  | **保留** | 187 | 494 |
+
+  **誤刪 2.95%（15/509）、抓錯 2.09%（4/191），precision 72.71% → 72.54%。**
+  誤刪是刪對的 **3.75 倍**，而且 15 筆誤刪裡有 9 筆是 Code Defect——
+  括號不匹配、陣列重複項導致某個分支永遠不執行、`curve1`／`curve2` 賦值錯、
+  錯誤訊息參數順序顛倒、`mode` 參數被忽略永遠用同一種鎖。**那些被無聲吃掉的代價太高。**
+
+  另外 5 筆誤刪屬於 Maintainability，而 filter 的 prompt 第二步**明寫**
+  「講風格、命名、可讀性且陳述屬實 → 保留，停」——**它違反了自己的規則 5 次**。
+  這與 §4 記的「rubric 加『給它看不到的前提』有效、加『要求自我約束』無效」是同一件事：
+  那份 prompt 的整個機制（預設全過、受保護主題否決權、不構成理由清單）都是自我約束。
+
+  ⚠️ 一個事前的粗估與結果一致，可以拿來當下次的判準：用語言訊號
+  （missing／unused／not checked／hardcoded…）分，**錯誤 comment 裡只有 13% 屬於
+  「可被 diff 字面反駁」的形狀，正確 comment 裡卻有 18%**——filter 的射程內，
+  對的比錯的多三倍（3.6:1），而實測誤刪比是 3.75:1。
+  **射程內的組成比模型的判斷力更早決定了上限。**
+
+  它抓對的那 4 筆都是真正的字面矛盾（return 後的死碼、null 檢查後又無條件使用、
+  `npos` 未處理、變數名 typo），所以問題不是「Ground B 這個判準錯」，
+  是**模型執行不了「只在能指出反證行時才刪」這條約束**。
 * **行號改由程式用程式碼片段比對算出，不再相信模型自報的行號**（2026-09-21）。
   用本 repo 八組 `ai-review-input`／`ai-review-output` artifact 離線重跑 16 筆真實
   finding，**零額外 API 花費**：
@@ -628,11 +656,9 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 
 ### 未驗證
 
-* **`filter-findings`（review filter）的效果沒有分布資料。** 它是刻意上線收集的起點，
-  不是結論。本 repo 自己的 `04` 已打開它，外部使用者**預設關閉**。
-  已驗的只有機制層：六條 fail-open 路徑（API 失敗、回傳無法解析、index 越界、
-  模型宣稱的反證行不在 diff 裡）都在 `selftest.py` 測項 `[10]` 驗過會「不刪」。
-  在累積多次真實 PR 的「刪不刪、刪得對不對」之前，不要把它當品質保證。
+* ~~**`filter-findings`（review filter）的效果沒有分布資料。**~~
+  **2026-09-21 有資料了，結論是負面的 —— 見下方「已驗證」的 `filter-findings 實測」。
+  本 repo 自己的 `04` 已把它關掉。**
 * **`typed-rules`（分型別補充規則）的效果也還沒有資料。** 已驗的是兩件機制層的事：
   規則確實依檔案型態被挑中（測項 `[11]`），以及**補充規則走 user message、
   system prompt 逐字不變**——三種 diff 型態下 system prompt 都是同樣的 2,886 字元，
