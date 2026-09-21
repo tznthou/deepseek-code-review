@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["index_diff", "extract_snippets", "locate_snippet", "resolve_line"]
+__all__ = ["index_diff", "extract_snippets", "locate_snippet", "resolve_line", "normalize_ws"]
 
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 _GIT_HEADER = re.compile(r" b/(.+)$")
@@ -81,8 +81,14 @@ def index_diff(diff_text: str) -> dict[str, dict[int, str]]:
     return index
 
 
-def _normalize(text: str) -> str:
-    """把連續空白壓成單一空格，讓縮排差異不影響比對。"""
+def normalize_ws(text: str) -> str:
+    """把連續空白壓成單一空格，讓縮排差異不影響比對。
+
+    公開的原因：`deepseek_review.apply_filter` 驗證「模型宣稱的反證行是否真的在
+    diff 裡」時必須用同一套正規化。兩邊各寫一份的話會分岔——實測發現過一次：
+    那邊用原始子字串比對，模型複製 YAML／Python 這類縮排敏感的行時只要空白稍有
+    出入就被判成幻覺，filter 於是永遠不刪任何東西，而且不會報錯。
+    """
     return re.sub(r"\s+", " ", text.strip())
 
 
@@ -123,10 +129,10 @@ def locate_snippet(
     正常的，在裡面挑一個等於拿一個錯位置換另一個錯位置。
     """
     for snippet in snippets:
-        first = _normalize(snippet.splitlines()[0]) if snippet.splitlines() else ""
+        first = normalize_ws(snippet.splitlines()[0]) if snippet.splitlines() else ""
         if len(first) < MIN_SNIPPET_LEN:
             continue
-        hits = [ln for ln, content in file_lines.items() if first in _normalize(content)]
+        hits = [ln for ln, content in file_lines.items() if first in normalize_ws(content)]
         if len(hits) == 1:
             return hits[0], "片段唯一命中"
         if len(hits) > 1:

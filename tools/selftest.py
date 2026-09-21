@@ -257,6 +257,13 @@ def main() -> int:
         kept, removed, _ = run_filter()
         check("反證行不在 diff 裡時拒絕刪除", len(kept) == 2 and not removed, len(kept))
 
+        # 縮排／空白有出入仍要視為同一行。兩邊比對邏輯若分岔（一邊正規化、一邊沒有），
+        # filter 會因為對不上而永遠不刪，且不報錯——靜默失效。
+        reviewer.chat_completion = fake_chat(
+            '{"remove":[{"index":0,"contradicting_line":"const    id   =  req.query.id;","reason":"r"}]}')
+        kept, removed, _ = run_filter()
+        check("反證行只有空白差異時仍認得出來", len(kept) == 1 and len(removed) == 1, len(kept))
+
         # index 超出範圍
         reviewer.chat_completion = fake_chat(
             '{"remove":[{"index":99,"contradicting_line":"const id = req.query.id;","reason":"r"}]}')
