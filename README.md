@@ -3,25 +3,40 @@
 一份可以直接放進 repo 的實作範本：**便宜的先跑（linter/SAST），貴的才跑（LLM），
 而且 fork PR 也安全。**
 
-2026-09-19／20 以真實 API 跑過 23 次、7 個真實標的（5 個歷史 commit + 1 個實際 PR + 本 kit 自己），整套花費 **$0.43**：
+**目前版本 `v1.1.1`。** 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
+邏輯留在這個 repo，你那邊只放引用。**完整做法見 [`USAGE.md`](USAGE.md)。**
 
 ```bash
-$ ./review-local.sh origin/main
-[info] 呼叫 https://api.deepseek.com / deepseek-v4-pro（diff 43788 字元、thinking=disabled、max_tokens=8192）
-[info] 完成於 10.9s ｜ findings=3 ｜ verdict=comment ｜ prompt_tokens=17414 completion_tokens=768
+$ ./review-local.sh origin/main          # 本機先試一次，不碰 GitHub
+[info] 呼叫 https://api.deepseek.com / deepseek-v4-pro（diff 43788 字元、thinking=disabled）
+[info] 完成於 10.9s ｜ findings=3 ｜ relocated=2 ｜ verdict=comment
 ```
 
-| 標的 | 行號落在 diff 內 | 結果 |
+### 它在什麼標的上有用
+
+命中率**由標的型態決定，不是由模型決定**（完整數據見 §4）：
+
+| 標的 | 實測 | 建議 |
 |---|---|---|
-| TypeScript + React（22 檔） | 5/5 · 3/3 | 引用的 code 逐字核對，零捏造 |
-| Rust（8 檔） | 4/4 | 提到的五個符號全部真實存在 |
-| Shell（6 檔） | 4/4 | 抓到一個真實的參數驗證缺口 |
-| 已修正的正確 code | — | 0 findings、判定 approve，不硬擠問題 |
-| TypeScript + React 實際 PR（27 檔，**註解密度 51.7%**） | 未驗（沒走 `post_review.py`） | ⚠️ **16 筆 finding 只有 1 筆成立**——見 §4.8，這是最該避開的標的類型 |
-| **本 kit 自己的 code**（11 檔，註解密度 9.8%） | 未驗 | ✅ **9 筆裡 2 筆成立，都是真 bug，當天修掉**（見 §4.8 對照組） |
+| GitHub workflow YAML | 4 筆裡 2 筆成立，都是該修的 bug（§8） | ✅ 目前最好的標的 |
+| TypeScript／React（22 檔） | 引用的 code 逐字核對，零捏造 | ✅ |
+| Rust（8 檔） | 提到的五個符號全部真實存在 | ✅ |
+| Shell（6 檔） | `deepseek-flash` 4 個技術斷言錯 3 個；`v4-pro` 抓到真的參數驗證缺口 | ⚠️ 一定要用 `v4-pro`，且每筆實跑 |
+| Markdown／文件（27 檔） | **16 筆只有 1 筆成立**，註解密度 51.7% | ⛔ 不要跑，會空手而回（§4.8） |
+
+> 這張表的樣本是各一到兩次跑，**不是統計結論**。本工具不可重現（§8「已知的不穩定」），
+> 方向可以參考，數字不要當指標。
+
+### 這個 kit 對自己做過的兩件事
+
+* **停用了自己的一個功能。** `filter-findings`（第二次呼叫過濾誤報）用 700 則人工標註
+  資料實測後發現它**誤刪 15 筆正確的、只刪對 4 筆**，precision 反而變差 → 已停用，
+  評估工具留在 `tools/eval/`，任何人都能重跑（§8）。
+* **不再相信模型報的行號。** 實測 16 筆 finding 只有 **1 筆**真的指向它自己引用的那段
+  code，其餘偏移 +1 到 +24 行。現在行號由程式用程式碼片段文字比對算出（§8）。
 
 ⚠️ **兩個預設值不改就不能用**：模型要用 `deepseek-v4-pro`、thinking 要關掉（理由見 §4）。
-kit 內都已經設好，但如果你從舊版複製過檔案，請對照 §4。
+kit 內都已經設好。
 
 研究報告請看同一目錄的 `github-pr-cicd-code-review-research.md`。
 
@@ -46,26 +61,45 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │       ├── reusable-static-review.yml      # ↓ 這四支是給別的 repo 引用的實作（USAGE.md）
 │       ├── reusable-codeql.yml             #   別人的 caller 用 @v1 指過來，不必複製腳本
 │       ├── reusable-ai-review-collect.yml  #
-│       └── reusable-ai-review-post.yml     #
+│       ├── reusable-ai-review-post.yml     #
+│       └── eval-filter.yml                 # 手動觸發：用 AACR-Bench 評估 filter（§8）
 ├── prompts/
 │   ├── review-rubric.md                    # 04 用的 review playbook（system prompt）
-│   ├── review-filter.md                    # 第二次呼叫用：只刪 diff 能當場證偽的 finding
+│   ├── review-filter.md                    # ⛔ filter 的 prompt，實測後已停用（§8）
 │   ├── rules/                              # 依 diff 的檔案型態附加的補充規則
 │   │   ├── github-workflows.md             #   幾乎每條都是這個 repo 自己踩過的坑
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測
-│   └── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
+│   ├── selftest.py                         # 不需網路/API key 的自測（11 組 46 項）
+│   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
+│   └── eval/                               # 用人工標註資料評估 prompt 的效果
+│       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
+│       └── eval_filter.py                  #   算誤刪率／抓錯率
 ├── review-local.sh                         # 本機跑一次 review，不碰 GitHub
+├── USAGE.md                                # ⭐ 在別的 repo 導入這套（三步驟，主要路線）
+├── SETUP-CHECKLIST.md                      # 逐項檢查表與每個坑的來龍去脈
 ├── README.md
-├── SETUP-CHECKLIST.md                      # 導入到新 repo 的逐項檢查表
 └── github-pr-cicd-code-review-research.md  # 選型研究報告
 ```
 
 ---
 
 ## 2. 五分鐘導入
+
+### 先選路線：引用，還是複製？
+
+|  | **引用（建議）** | 複製 |
+|---|---|---|
+| 你那邊要放什麼 | 三個 caller 檔，每個十幾行 | 整個 `.github/` + `prompts/` + `tools/` |
+| 腳本與 rubric | 留在這個 repo，用 `@v1` 指過來 | 你自己一份 |
+| 這邊修 bug 之後 | **下次跑就是新版**（浮動 tag 自動送達） | 要自己同步 |
+| 適合什麼時候 | 幾乎所有情況 | 你要改腳本本身，或不想依賴外部 repo |
+
+**➡️ 引用路線的完整做法在 [`USAGE.md`](USAGE.md)**——三步驟、三份可直接複製的 caller，
+本 repo 自己的 `01`–`04` 就是照那份寫的（dogfood），所以那些範例是實際在跑的東西。
+
+下面是**複製路線**的步驟。步驟 2、4、5、6 兩條路線都適用。
 
 ### 步驟 1：複製檔案
 
@@ -80,6 +114,9 @@ cp    <kit>/review-local.sh <your-repo>/
 # .gitignore 用「附加」不要覆蓋——目標 repo 多半已經有自己的規則
 cat  <kit>/.gitignore >> <your-repo>/.gitignore
 ```
+
+⚠️ 複製過去之後，`.github/workflows/` 裡那四支 `reusable-*.yml` 和 `eval-filter.yml`
+對你沒用（前者是給別人引用的實作，後者是本 kit 的評估工具），可以刪掉。
 
 ⚠️ **最後那行別跳過。** 這個 kit 需要 `DEEPSEEK_API_KEY`，而 2026-09-20 實測：
 沒有這幾條規則時，`.env`、`*.key`、`.DS_Store`、`.claude/` 全都會被 `git add -A` 直接收進去。
@@ -222,10 +259,26 @@ export DEEPSEEK_API_KEY=sk-xxxx
 
 ---
 
-## 4. 實測結果（2026-09-19／20）
+## 4. 實測結果（2026-09-19 ～ 09-21）
 
-23 次真實 API 呼叫、7 個真實標的。模型講的每一句話都另外驗證過——
-符號存在性回頭搜 diff、行號用 `post_review.py` 自己的解析函式驗、技術斷言全部實跑。
+原始的品質評估是 **23 次真實 API 呼叫、7 個真實標的**（09-19／20，$0.43），
+之後在真實 PR 上持續累積（未逐次計數）。**模型講的每一句話都另外驗證過**——
+符號存在性回頭搜 diff、技術斷言全部實跑。
+
+09-21 另外做了兩組更大的實驗，結論在 §8：
+
+* **定位機制的紅綠對照**（n=16，零額外花費）：拿八組歷史 review artifact 離線重跑，
+  比較「信模型報的行號」與「用程式碼片段文字比對算行號」。
+* **`filter-findings` 的效果評估**（700 則人工標註 comment、160 次 API 呼叫、$0.48）：
+  結論是負面的，該功能已停用。
+
+⚠️ 底下 §4.1–§4.10 保留當時的原始觀察，其中兩處後來有更新：
+
+* **§4.2 表格裡的「行號 5/5」「行號 4/4」是會誤導的指標。** 它量的是「行號落在 diff
+  範圍內」＝ GitHub API 不會回 422，**跟「指的對不對」是兩件事**。後來用 16 筆真實
+  finding 逐行核對，只有 1 筆真的指向它自己引用的那段 code。見 §8 的「可貼 ≠ 指對」。
+* **§4.7／§4.9 記的「加要求自我約束的規則無效」後來拿到了更強的證據**——
+  `filter-findings` 整份 prompt 都建立在自我約束上，700 則標註資料實測失敗。見 §8。
 
 ### 4.1 `max_tokens` 那個坑（不處理就 100% 失敗）
 
@@ -245,7 +298,10 @@ reasoning 會吐十萬字元，不划算。
 
 ### 4.2 為什麼預設用 `deepseek-v4-pro`
 
-同一份 diff、同樣關閉 thinking：
+同一份 diff、同樣關閉 thinking。
+
+⚠️ 表格裡的「行號 N/N」只代表**行號落在 diff 範圍內**（貼得上去、API 不回 422），
+**不代表指對了位置**。後來的實測顯示那兩件事差很多——見 §8。
 
 | 標的 | `deepseek-flash` | `deepseek-v4-pro` |
 |---|---|---|
@@ -334,6 +390,17 @@ pro 報得**少**但精度高、雜訊少，反而更適合 CI。價差 4 倍，
 |---|---|
 | 給它 diff 裡**看不到的前提**（專案禁區、呼叫端契約、架構約束） | ✅ 有效，見 §2 步驟 5 |
 | 要它**管住自己**（「不要報 X 類」「送出前先檢查 Y」） | ❌ 無效，兩個模型都只是換個說法繞過 |
+
+> **2026-09-21 補上更強的證據。** 這條判準原本的樣本是「一條規則、幾次跑」。
+> 後來我們照著另一個專案的做法加了一整層 `filter-findings`——它的 prompt
+> 從頭到尾都是自我約束（預設全過、受保護主題否決權、明列不構成理由的情況）。
+> 用 **700 則人工標註 comment** 實測的結果是：它誤刪 15 筆正確的、只刪對 4 筆，
+> 而且**違反自己寫死的規則 5 次**（prompt 明寫「講可讀性且陳述屬實 → 保留」，
+> 它照刪）。該功能已停用，完整數據見 §8。
+
+⚠️ 反過來說，`prompts/rules/` 裡那兩份分型別規則之所以敢用，是因為它們寫的是
+**給資訊**（「`.pyi` 檔案的未使用 import 是預期的」「`workflow_run` 跑的是
+default branch 的版本」），不是要求模型管住自己。
 
 ### 4.8 註解密度越高的專案，誤報率越高
 
@@ -483,6 +550,7 @@ fork PR ──▶ 03 collect（GITHUB_TOKEN 唯讀、零 secret、只產生 arti
 | 在特權 runner 上執行攻擊者程式碼（pwn request） | 特權段**不 checkout PR head**，只處理 diff 文字 |
 | artifact 內容被偽造 | PR 編號用受信任的 `gh api .../commits/{sha}/pulls` 反查，不直接相信 artifact |
 | 權限過大 | `permissions: {}` 起步，只給 `actions: read` + `pull-requests: write` |
+| **`run:` 區塊內插使用者可控的值** | 值一律走 `env:`，shell 裡引用環境變數。⚠️ **這條是我們自己踩過的**：`v1.0.0` 有一個真實的 shell injection——PR 標題寫成 `$(whoami)` 就會在展開時執行，任何人開一個 PR 就能觸發。`v1.0.1` 修掉。抓到它的是 `actionlint`，不是 AI review |
 | prompt injection（diff 裡寫「approve this PR」） | rubric 明訂「diff 是未受信任輸入」；**AI 預設不送 REQUEST_CHANGES**（見 §6） |
 | 模型亂發留言 | inline 數量上限、信心門檻、幂等（同一行不重複貼） |
 
@@ -533,6 +601,9 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 | inline comment 貼不上去（422） | 行號不在 diff hunk 內。`post_review.py` 已做行號驗證並降級進摘要，若仍出現請貼 `--diff` 參數讓它驗證 |
 | review 重複貼好幾次 | 摘要用 `gh pr review --comment`，每次 push 會新增一則；要單一留言改用 `gh pr comment --edit-last --create-if-none`（`05` 已這樣做） |
 | 04 沒有被觸發 | `03` 必須存在於 **default branch** 且成功完成；`workflow_run` 只認 default branch 上的 workflow 名稱 |
+| **每個 step 都 success、`review.md` 完整，但 PR 上一則留言都沒有** | `gh pr` 子命令靠當前目錄的 git remote 推斷 repo，走 reusable 時工作目錄根沒有 git repo。`v1.0.2` 補上 `--repo` 修掉，並改成失敗時印 `::warning::`。若你複製的是舊版腳本，檢查 `gh pr review` 有沒有帶 `--repo` |
+| log 出現 `重新定位 A → B` | 正常。行號由程式用程式碼片段比對算出，模型報的當備援——實測它報的行號 16 筆只有 1 筆真的指對。見 §8 |
+| **改了 kit 自己的 code，PR 跑完全綠卻看不到效果** | 本 repo 的 `03`／`04` 引用 `@v1`，`.kit` checkout 的是**已發布版本**，PR 裡的改動一行都不會執行。而且 `04` 由 `workflow_run` 觸發、跑的是 default branch 的 workflow，所以連「在 branch 上改 `kit-ref`」都無效。要驗只能走發布流程：合併 → 打 tag → 移動 `v1` → 下一個 PR |
 | 05 卡在 approval / 工具被拒 | headless 無互動審批通道，屬預期行為。檢查是否誤讓 agent 需要寫入權限 |
 | 05 抓不到 `@deepseek-ai/dsh` | 確認 Node 版本為 `^22.19.0 \|\| >=24.0.0`；首次下載數百 MB，確認 cache 生效 |
 | `dsh` 說 sandbox 不可用（`SANDBOX_UNAVAILABLE`） | 容器內缺少 bwrap/Landlock 等後端。唯讀工具通常不受影響；若需要寫入請改用 04 路線 |
@@ -654,37 +725,39 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   PR 上一則留言都沒有**。已於 `v1.0.2` 修正，並把 `gh` 失敗改用 `::warning::` 輸出。
   舊版 `04` 跑了三個 PR 都正常——**不做 dogfood 這個 bug 會留在 `v1` 裡等別人踩**。
 
-### 未驗證
-
-* ~~**`filter-findings`（review filter）的效果沒有分布資料。**~~
-  **2026-09-21 有資料了，結論是負面的 —— 見下方「已驗證」的 `filter-findings 實測」。
-  本 repo 自己的 `04` 已把它關掉。**
-* **`typed-rules`（分型別補充規則）的效果也還沒有資料。** 已驗的是兩件機制層的事：
-  規則確實依檔案型態被挑中（測項 `[11]`），以及**補充規則走 user message、
-  system prompt 逐字不變**——三種 diff 型態下 system prompt 都是同樣的 2,886 字元，
-  這是 context caching 命中的前提。
-  ✅ **`typed-rules` 已在真實環境驗過**（2026-09-21，PR #10 第二次跑）：diff 含 `.py`
-  檔案時 log 出現 `套用補充規則：python.md`，純 markdown 的 diff 則不附加任何規則。
-
-  ✅ **改 rubric 造成的 cache 下降是重建過渡，不是結構性損失。** 實測五次
-  `prompt_cache_hit_tokens`：
+* ✅ **`typed-rules`（分型別補充規則）的機制已在真實環境驗過**（2026-09-21）：
+  diff 含 `.py` 檔案時 log 出現 `套用補充規則：python.md`，同時含 workflow 與 Python
+  時兩份都套用，純 markdown 的 diff 則一份都不附加。
+  規則走 **user message 不走 system prompt**，所以不影響 context caching——
+  三種 diff 型態下 system prompt 都是同樣的 2,886 字元。
+* ✅ **改 rubric 造成的 cache 命中下降是重建過渡，不是結構性損失。**
+  實測五次 `prompt_cache_hit_tokens`：
 
   | rubric | 第 1 次 | 第 2 次 | 第 3 次 |
   |---|---|---|---|
-  | 舊（80 行） | 1,280 | 1,280 | — |
+  | v1.0.2（80 行） | 1,280 | 1,280 | — |
   | v1.1.0（89 行） | **640** | **1,024** | **1,408** |
 
-  舊 rubric 的命中數不隨 diff 大小變動（`prompt_tokens` 從 1,932 到 10,301 都是 1,280）。
+  舊 rubric 的命中數**不隨 diff 大小變動**（`prompt_tokens` 從 1,932 到 10,301 都是 1,280）。
   新 rubric 第三次已超過舊值，符合「rubric 變長、可快取的前綴也變長」的預期。
   DeepSeek 的 cache 是前綴比對，改動之後需要幾次請求重新建立。
+* ✅ **rubric 的 `existing_code` 欄位，模型確實填得出來而且填得對**（2026-09-21，
+  PR #10）：實際回傳的是
+  `'if locate.normalize_ws(line) not in locate.normalize_ws(diff):'`，與 diff 逐字相符。
+  同一輪也驗到定位層會修正行號（兩筆各偏移 +3 行）。
+  ⚠️ 但那一輪也暴露了定位層自己的一個 bug——見上方「行號改由程式算」那條的說明。
+
+### 未驗證
+
+* **`typed-rules` 有沒有真的提升命中率，還沒有資料。** 已驗的是「規則確實依檔案型態
+  被挑中」這件機制層的事（`selftest.py` 測項 `[11]` + 真實環境 log）。
+  但「加了 workflow／Python 規則之後，finding 的成立率有沒有變高」需要 A/B，
+  而本工具不可重現，單次跑證明不了因果——要做得照 `tools/eval/` 那套，
+  用標註資料跑固定分母的對照。
 * **`filter-findings` 每次都是完整的 cache miss。** 它用的是另一份 system prompt
   （`review-filter.md`），實測 `prompt_cache_hit_tokens: 0`。這是它的額外成本裡
   容易被忽略的一塊：不只是多一次呼叫，而是多一次**沒有 cache 折扣**的呼叫。
-* **rubric 新增的 `existing_code` 欄位還沒跑過真實 API。** 上面那組定位實驗用的是
-  既有的 `evidence` 欄位當替身——那個欄位本來不是設計來定位的，只是剛好常夾帶
-  程式碼引用。專用欄位的片段品質應該更好，但**那是推測，沒驗**。
-  另外：自訂 rubric（`rubric-path`）若沒有這個欄位也不會壞，定位會退回第 3 層
-  使用模型行號，行為與改版前相同。
+  （該功能已停用，這條留著是因為「換 system prompt 就失去 cache」這件事本身值得記。）
 * **§4.7／§4.9 的 rubric 變體比較全部是單次跑，不是統計結論。** 本工具不可重現
   （見下方「已知的不穩定」），所以「改了 X 之後結果變 Y」**證明不了 X 導致 Y**。
   這些表格裡唯一經過多次重複的是「缺測試那條幾乎不觸發」（10 次跑裡 8 次 0 筆）；
