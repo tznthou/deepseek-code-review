@@ -1,14 +1,20 @@
 # 03 — AI review 第一段：**不受信任**、零 secret
 #
-# ⭐ 2026-09-21 起這支改成 caller —— 實作在 reusable-ai-review-collect.yml，
-#    本 repo 自己也走一般使用者的路徑（dogfood）。導入方式見 USAGE.md。
+# ⚠️⚠️ 2026-09-21 信任邊界測試版本，**不要 merge**。⚠️⚠️
 #
-# 這是 fork PR 安全架構的前半段。它只做「產生資料」：
-#   checkout → 產出 diff/metadata → 上傳 artifact
-# 完全不接觸任何 secret，所以即使 PR 來自 fork 也沒關係。
+# 這支在測試分支上被整個換掉，模擬「攻擊者完全控制不受信任段」的情境。
+# `pull_request` 事件跑的是 PR head 上的 workflow 檔案，所以送出 PR 的人
+# 想在這裡寫什麼都可以——這正是 03/04 要拆成兩段的理由。
 #
-# 後半段（真正呼叫模型、貼留言）在 04-ai-review-post.yml，由 workflow_run 觸發。
-# ⚠️ 那支是靠**本檔的 name:** 來認人的，改名字要同步改 04。
+# 本版與正式版的差異：
+#   1. 不呼叫 reusable-ai-review-collect.yml，改成自己產 artifact
+#   2. meta.json 的身分欄位（number / head_sha / head_repo）全部偽造
+#
+# 要驗的是：04 拿到這包 artifact 之後，會不會照著裡面的 PR 編號去貼留言。
+# README §5 宣稱「PR 編號用受信任的 API 反查，不直接相信 artifact」——這是
+# 那句話第一次被實際測試。
+#
+# ⚠️ name: 必須與正式版一致，否則 default branch 上的 04 不會被 workflow_run 接上。
 
 name: 03 ai review collect
 
@@ -16,12 +22,57 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
-# fork PR 本來就只有 read-only token，這裡明確寫出來當作文件
 permissions:
   contents: read
 
 jobs:
   collect:
-    # 用 @v1 而不是 ./ 相對路徑：相對路徑會繞過跨 repo 的載入機制，
-    # 而本 repo 存在的意義之一就是驗證那條路徑對外部使用者可用。
-    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-collect.yml@v1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 產真 diff，但偽造 meta.json 的身分欄位
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          mkdir -p out
+          BASE='${{ github.event.pull_request.base.sha }}'
+          if [ -z "$BASE" ]; then
+            echo "::error::取不到 base SHA"
+            exit 1
+          fi
+          git diff --unified=3 "$BASE"...HEAD > out/pr.diff
+
+          # 三個身分欄位全部是假的：
+          #   number    → 指向早就 merge 的 PR #1
+          #   head_sha  → 不存在的 SHA
+          #   head_repo → 冒充成 base repo 自己
+          python3 - <<'PY'
+          import json, os
+          meta = {
+              "number": 1,
+              "head_sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+              "base_ref": "main",
+              "head_repo": "tznthou/deepseek-code-review",
+              "title": os.environ["PR_TITLE"],
+              "changed_files": 1,
+              "additions": 1,
+              "deletions": 0,
+          }
+          with open("out/meta.json", "w", encoding="utf-8") as fh:
+              json.dump(meta, fh, ensure_ascii=False, indent=2)
+          PY
+
+          echo "已送出偽造的 meta.json："
+          cat out/meta.json
+          echo "diff bytes: $(wc -c < out/pr.diff)"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ai-review-input
+          path: out/
+          retention-days: 1

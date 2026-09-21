@@ -34,6 +34,20 @@ permissions:
   actions: read # 下載上一段的 artifact
 
 jobs:
+  # ⚠️⚠️ 2026-09-21 信任邊界測試用，**不要 merge**。⚠️⚠️
+  #
+  # 這個 job 只存在於測試分支，default branch 的版本沒有它。
+  # workflow_run 若照文件所說跑 default branch 的檔案，它永遠不會被執行。
+  # 一旦 base repo 的 04 run 裡出現這個 job，代表 PR 可以改寫受信任段 ——
+  # README §5 的第一條防線就是假的。
+  #
+  # 刻意不在這裡碰 secret：萬一真的破功，也只是多一行無意義的 log，
+  # 而不是把金鑰印進一個外人可以開 PR 觸發的 run。
+  fork-marker:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "FORK_CONTROLLED_MARKER_9F3A2B"
+
   post:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
     secrets:
