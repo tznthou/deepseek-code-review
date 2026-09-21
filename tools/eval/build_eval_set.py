@@ -50,11 +50,13 @@ def log(msg):
 def load_dataset(cache_path):
     if os.path.exists(cache_path):
         log(f"[info] 用既有的 {cache_path}")
-        return json.load(open(cache_path, encoding="utf-8"))
+        with open(cache_path, encoding="utf-8") as fh:
+            return json.load(fh)
     log(f"[info] 下載 {DATASET_URL}")
     with urllib.request.urlopen(DATASET_URL, timeout=120) as resp:
         raw = resp.read()
-    open(cache_path, "wb").write(raw)
+    with open(cache_path, "wb") as fh:
+        fh.write(raw)
     return json.loads(raw.decode("utf-8"))
 
 
@@ -143,7 +145,8 @@ def main():
         })
         log(f"[{i}/{len(urls)}] ✅ {repo}#{num}  {len(sliced)//1024} KB  {len(keep)}/{len(cs)} 則")
 
-    json.dump(items, open(out_path, "w", encoding="utf-8"), ensure_ascii=False)
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(items, fh, ensure_ascii=False)
     n = sum(len(x["comments"]) for x in items)
     n1 = sum(1 for x in items for c in x["comments"] if c["label"] == 1)
     log("")

@@ -144,8 +144,10 @@ def main():
         log("[error] 缺少 DEEPSEEK_API_KEY")
         return 1
 
-    filter_prompt = open(args.filter_prompt, encoding="utf-8").read()
-    items = json.load(open(args.eval_set, encoding="utf-8"))
+    with open(args.filter_prompt, encoding="utf-8") as fh:
+        filter_prompt = fh.read()
+    with open(args.eval_set, encoding="utf-8") as fh:
+        items = json.load(fh)
     if args.limit:
         items = items[:args.limit]
 
@@ -217,11 +219,12 @@ def main():
         with open(summary, "a", encoding="utf-8") as fh:
             fh.write(report + "\n")
 
-    json.dump({"tp": tp, "fp": fp, "fn": fn, "tn": tn,
-               "model": args.model, "prs": len(items), "comments": total,
-               "tokens_in": tok_in, "tokens_out": tok_out,
-               "killed": killed_records, "errors": errors},
-              open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    with open(args.out, "w", encoding="utf-8") as fh:
+        json.dump({"tp": tp, "fp": fp, "fn": fn, "tn": tn,
+                   "model": args.model, "prs": len(items), "comments": total,
+                   "tokens_in": tok_in, "tokens_out": tok_out,
+                   "killed": killed_records, "errors": errors},
+                  fh, ensure_ascii=False, indent=1)
     log(f"\n[info] 明細 → {args.out}")
     return 0
 
