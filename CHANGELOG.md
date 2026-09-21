@@ -9,6 +9,24 @@
 > 引用它的 repo 不必改任何東西就會拿到修正版。代價是破壞性變更也會自動推播——
 > 所以 v1 這條線上的相容性承諾見 README §5，本檔的 `BREAKING` 標記請特別留意。
 
+## [Unreleased]
+
+### Changed
+
+- `codeql-config.yml` 加上 `threat-models: local`。**預設的 threat model 只把「遠端」
+  輸入當汙染源**，命令列參數、環境變數、檔案系統屬於 local source——所以
+  `sys.argv` 流進 `subprocess.run(..., shell=True)` 這種本機工具的 command injection，
+  預設設定下**不會被報出來**。實測（刻意寫壞的 104 行 Python）：預設 4 筆告警，
+  加上這個設定變 7 筆，多出來的三筆全是需要追資料流的
+  （`py/command-line-injection`、`py/partial-ssrf`、`py/path-injection`）。
+  複製這份設定的 repo 若掃的是 CLI 工具或 CI 腳本，這個設定通常才是你要的。
+
+### Docs
+
+- `USAGE.md` 釘版本的範例從 `@v1.2.1` 更新到 `@v1.2.2`（v1.2.2 發版時漏掃）。
+- README §8 補上「本 repo 零告警」那句的前提，以及查 PR alert 要用
+  `refs/pull/<n>/merge` 而不是 `refs/heads/<branch>`。
+
 ## [1.2.2] - 2026-09-21
 
 ### Fixed

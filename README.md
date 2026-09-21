@@ -52,7 +52,7 @@ kit 內都已經設好。
 ```
 deepseek-code-review/                        # repo 根目錄——kit 就跑在這裡（dogfood）
 ├── .github/
-│   ├── codeql/codeql-config.yml            # CodeQL 查詢設定（security-and-quality）
+│   ├── codeql/codeql-config.yml            # CodeQL 查詢設定（security-and-quality + local threat model）
 │   ├── scripts/
 │   │   ├── deepseek_review.py              # diff → DeepSeek → review.md + findings.json（純標準庫）
 │   │   ├── locate.py                       # 行號由片段文字比對算出，不信模型自報的（見 §8）
@@ -714,6 +714,17 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 * **`02-codeql.yml` 在真實 GitHub Actions 上跑通**（2026-09-20，本 repo 自己）：
   push 到 main 觸發，`Analyze (python)` 59s、`Trivy (filesystem)` 32s 兩個 job 全綠，
   SARIF 確實進到 code scanning（CodeQL 與 Trivy 各一筆分析紀錄，本 repo 零告警）。
+  ⚠️ **2026-09-21 補充：那句「零告警」有前提。** 拿一支刻意寫壞的 Python
+  （`sys.argv` 一路流進 `subprocess.run(..., shell=True)`）實測，**預設設定下
+  CodeQL 不會報那筆 command injection**——它確實 extract 了檔案、也載入並跑了
+  `CWE-078/CommandInjection`、SARIF 也上傳成功，就是不報。原因是**預設的
+  threat model 只把「遠端」輸入當汙染源**，命令列參數、環境變數、檔案系統
+  屬於 local source。加上 `threat-models: local` 之後，同一份 code 從 4 筆
+  變 7 筆，多出來的三筆全都是需要追資料流的（command injection / partial SSRF /
+  path injection），而原本那 4 筆全是局部語法分析。本 repo 的 Python 都是 CI
+  腳本、吃的就是 argv 與環境變數，所以 `codeql-config.yml` 已經打開這個設定。
+  ⚠️ 查結果時注意：**PR 的 alert 在 `refs/pull/<n>/merge`**，查
+  `refs/heads/<branch>` 會得到 0 筆，看起來像沒報。
   同時驗掉一個**不會報錯的失敗模式**：這套 kit 原本放在 `code-review-kit/` 子目錄下，
   五個 workflow 的實際觸發次數是**零**——GitHub Actions 只掃 `<repo-root>/.github/workflows/`，
   放錯位置既不觸發也不警告。詳見 §2 步驟 1 的警告。
