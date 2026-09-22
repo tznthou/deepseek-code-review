@@ -240,6 +240,7 @@
   方式導入，不必複製腳本也不必複製 rubric。
 - `USAGE.md`：三步驟導入說明與可直接複製的 caller 範本。
 
+[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.0...HEAD
 [1.3.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.0...v1.2.1
