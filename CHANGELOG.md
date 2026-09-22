@@ -33,6 +33,26 @@
 
 ### Fixed
 
+- **`extract_json` 不再把 finding 內容裡的 code fence 當成整份回應的外包裝。**
+  2026-09-22 真實事故：模型在 finding 的 `body` 裡寫 markdown code fence 給修正建議
+  （下面這段用四個反引號包住，因為它自己就含有三個反引號的 fence）：
+
+  ````
+  "body": "建議修正為：\n```yaml\nFOO: ${{ secrets.FOO }}\n```"
+  ````
+
+  而舊的順序是「**先剝 fence 再 `json.loads`**」，剝的方式又是 `re.search` 一個
+  非貪婪 pattern——它會抓到整份回應裡**任何一段** fence，包括上面那一段。於是
+  一份**完整且合法**的 JSON 被換成那段 YAML，`find("{")`／`rfind("}")` 再從裡面
+  切出 `{{ secrets.FOO }}`，最後報 `Expecting property name ... line 1 column 2`。
+  症狀指向「模型吐了畸形 JSON」，真因是我們自己把它剝壞了。
+  - 改成先試整份（本來就有 `response_format: json_object`，這條該最先中），
+    失敗才剝 fence，而且 fence 必須包住**整個** text（`^...$` 錨定）才剝。
+  - ⚠️ **AI review 給修正建議時本來就會寫 code fence**，所以這不是罕見輸入。
+    `v1.0.0` 起就存在，那天是第一次真的踩到——整個 review 解析失敗、exit 2、
+    PR 上一則留言都沒有。
+  - 這條也擋住了上一版修正的生效：`incomplete_json_error` 在它後面，內容被剝壞
+    之後根本走不到。修掉 fence 之後，同一份真實回應才正確報出「JSON 在字串中途結束」。
 - **`extract_json` 不再讓「內容不完整」偽裝成「格式錯誤」。** 第二層 fallback 用
   `text.rfind("}")` 找結尾，內容被切斷時它抓到的是**中途某一筆的收尾 `}`**，
   切出來的片段必然語法錯誤，於是 `JSONDecodeError` 指向片段裡的奇怪位置
@@ -50,12 +70,17 @@
 
 ### Changed
 
-- `tools/selftest.py` 從 12 組 49 項增加到 **15 組 79 項**。新增三組：兩組涵蓋上述的
-  `extract_json` 與診斷輸出修正（含「括號平衡但語法錯」「收尾多過開頭」兩個誤報探針，
-  以及字串內含括號、跳脫引號這些不可誤判的護欄），一組涵蓋禁用詞掃描
-  （含「清單只有空行」「詞太短」兩個防止靜默擋一切的探針，以及一條專門釘住
-  「回傳值不可以帶出禁用詞本身」的斷言）。README badge 與 `SETUP-CHECKLIST.md` §9
-  一併更新——後兩處先前分別停在 `49` 與 `9 項`，是發版時漏掃的。
+- `tools/selftest.py` 從 12 組 49 項增加到 **15 組 86 項**：
+  - 新增兩組，涵蓋不完整偵測與診斷輸出（含「括號平衡但語法錯」「收尾多過開頭」
+    兩個誤報探針，以及字串內含括號、跳脫引號這些不可誤判的護欄）。
+  - `[13]` 組再補 7 項，涵蓋 code fence 那條修正：兩項驗「`body` 含 fence 的合法
+    JSON 解析得出來且內容沒被剝壞」，四項是 never-break 護欄（純 JSON、整份被
+    fence 包住、前後綴雜訊、雜訊加 fence）——這四項**在修改前後都必須通過**，
+    否則只證明了新行為出現，沒證明舊能力還在。
+  - 新增一組涵蓋禁用詞掃描（含「清單只有空行」「詞太短」兩個防止靜默擋一切的探針，
+    以及一條專門釘住「回傳值不可以帶出禁用詞本身」的斷言）。
+  - README badge 與 `SETUP-CHECKLIST.md` §9 一併更新——後兩處先前分別停在 `49`
+    與 `9 項`，是發版時漏掃的。
 - `review-local.sh` 檔頭不再教 `export DEEPSEEK_API_KEY=sk-xxxx`：那會把金鑰明文留在
   shell history 裡，而 history 不會過期也沒有人在看守。改為提示 `read -rs` 或 macOS
   Keychain 的取法，並說明這支腳本只從環境變數讀、不吃命令列參數（後者會出現在 `ps`）。

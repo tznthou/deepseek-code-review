@@ -4,7 +4,7 @@
 而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
-[![selftest](https://img.shields.io/badge/selftest-79%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![selftest](https://img.shields.io/badge/selftest-86%20passing-brightgreen?style=flat-square)](tools/selftest.py)
 [![license](https://img.shields.io/github/license/tznthou/deepseek-code-review?style=flat-square)](LICENSE)
 
 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
@@ -75,7 +75,7 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測（15 組 79 項）
+│   ├── selftest.py                         # 不需網路/API key 的自測（15 組 86 項）
 │   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
@@ -675,7 +675,7 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   當時的 agent session 拿不到 API key，後來補跑了。實測數據見 §4。
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
-* `python3 tools/selftest.py` **15 組 79 項斷言全通過**。
+* `python3 tools/selftest.py` **15 組 86 項斷言全通過**。
 * **送出前的禁用詞掃描，在真實 GitHub Actions 上跑過兩件事**（2026-09-22，
   用長期保留的整合測試 repo）：
   * **攔截生效**：diff 裡放一個會命中的標記，`DeepSeek review` step 印出

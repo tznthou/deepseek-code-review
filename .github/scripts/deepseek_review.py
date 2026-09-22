@@ -349,15 +349,34 @@ def incomplete_json_error(fragment: str) -> str | None:
 
 
 def extract_json(text: str) -> dict:
-    """模型有時仍會包 code fence 或加前後綴，這裡做寬鬆解析。"""
+    """模型有時仍會包 code fence 或加前後綴，這裡做寬鬆解析。
+
+    ⚠️ 順序有意義，2026-09-22 真實事故：原本是「先剝 code fence 再 json.loads」，
+    而剝的方式是 `re.search` 一個非貪婪 pattern —— 它會抓到**整份回應裡任何一段**
+    fence，包括 finding 自己 `body` 欄位裡的那段。那天模型在建議修正時寫了
+
+        "body": "建議修正為：\\n```yaml\\nFOO: ${{ secrets.FOO }}\\n```"
+
+    於是整份合法的 JSON 被換成那段 YAML，`find("{")`/`rfind("}")` 再從裡面切出
+    `{{ secrets.FOO }}`，報 `Expecting property name ... line 1 column 2`。
+    AI review 給修正建議時本來就會寫 code fence，所以這不是罕見輸入。
+
+    改成：**先試整份**（有 response_format=json_object，這條本來就該最先中），
+    失敗才剝 fence，而且 fence 必須包住**整個** text（`^...$` 錨定）才剝。
+    """
     text = text.strip()
-    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
-    if fence:
-        text = fence.group(1).strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
+    # 錨定整份：只處理「回應就是一塊 fence」的情況，不去抓 JSON 內容裡的 fence
+    fence = re.match(r"^```(?:json)?\s*(.*?)```\s*$", text, re.DOTALL)
+    if fence:
+        inner = fence.group(1).strip()
+        try:
+            return json.loads(inner)
+        except json.JSONDecodeError:
+            text = inner
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end > start:
         try:

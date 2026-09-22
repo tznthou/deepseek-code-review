@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import re
 import sys
@@ -375,6 +376,41 @@ def main() -> int:
     # never-break 護欄：字串裡的括號與跳脫引號不可以被當成結構
     check("字串內的括號不誤判", reviewer.extract_json('{"msg": "a } b { c"}') == {"msg": "a } b { c"})
     check("跳脫引號不誤判", reviewer.extract_json(r'{"msg": "說\"嗨\""}') == {"msg": '說"嗨"'})
+
+    # 2026-09-22 真實事故：模型在 finding 的 body 裡寫 markdown code fence 給修正建議，
+    # 而舊版「先剝 fence 再 json.loads」的 re.search 會抓到**那一段**，把整份合法 JSON
+    # 換成 body 裡的 YAML 片段，再從裡面切出 `{{ secrets.FOO }}`
+    # → Expecting property name ... line 1 column 2。AI review 給建議時本來就會寫
+    # code fence，所以這不是罕見輸入，是必然會再發生的。
+    fenced_body = json.dumps(
+        {
+            "verdict": "comment",
+            "findings": [{"body": "建議修正為：\n```yaml\nFOO: ${{ secrets.FOO }}\n```\n就這樣"}],
+        },
+        ensure_ascii=False,
+    )
+    parsed_fenced = reviewer.extract_json(fenced_body)
+    check(
+        "body 裡含 code fence 的合法 JSON 仍解析得出來",
+        parsed_fenced.get("verdict") == "comment",
+        parsed_fenced,
+    )
+    check(
+        "body 內容沒有被 fence 剝壞",
+        parsed_fenced["findings"][0]["body"].startswith("建議修正為"),
+        parsed_fenced["findings"][0]["body"][:40],
+    )
+    # 同一形狀但被截斷（真實那次就是這樣）：要報不完整，不可以報 column
+    cut_fenced = fenced_body[: fenced_body.index("就這樣")]
+    check("body 含 fence 又被截斷時報不完整", "不完整" in parse_err(cut_fenced), parse_err(cut_fenced))
+    # never-break：原本就支援的三種輸入不可以因為調順序而壞掉
+    check("純 JSON 仍可解析", reviewer.extract_json('{"a": 1}') == {"a": 1})
+    check("整份被 fence 包住仍可解析", reviewer.extract_json('```json\n{"a": 1}\n```') == {"a": 1})
+    check("前後綴雜訊仍可解析", reviewer.extract_json('好的：\n{"a": 2}\n以上。') == {"a": 2})
+    check(
+        "前後綴雜訊 + fence 包 JSON 仍可解析",
+        reviewer.extract_json('結果如下：\n```json\n{"a": 3}\n```\n以上。') == {"a": 3},
+    )
 
     print("[14] diagnostic_excerpt：解析失敗要印得出斷點")
     # 原本只印 content[:2000]。內容不完整時斷點在尾巴，印開頭正好把唯一
