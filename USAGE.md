@@ -11,9 +11,10 @@
 
 Repo → Settings → Secrets and variables → Actions → New repository secret
 
-| Name | 去哪拿 |
-|---|---|
-| `DEEPSEEK_API_KEY` | https://platform.deepseek.com/api_keys |
+| Name | 必填 | 去哪拿 |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | ✅ | https://platform.deepseek.com/api_keys |
+| `REVIEW_BLOCKED_TERMS` | — | 你自己列（見下面「送出前的禁用詞掃描」） |
 
 **每個 repo 都要設自己的一把，費用算你自己的帳號。** GitHub 的 secret 綁 repo，
 被引用的 workflow 只拿得到「呼叫方」的 secret——所以這個 kit 碰不到你的 key，
@@ -24,6 +25,33 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 ```bash
 gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>
 ```
+
+### 送出前的禁用詞掃描（選填）
+
+這套工具會把 **diff、PR 標題、rubric** 送到 DeepSeek 的 API。如果你的 code 或 PR 標題
+裡可能出現不該離開本機的字串——內部代號、私有工具名、客戶名——設這個 secret：
+送出前會做一次大小寫不敏感的子字串比對，**命中就拒送、不呼叫 API**（離開碼 3）。
+
+```bash
+# 一行一條，值不會進 shell history
+gh secret set REVIEW_BLOCKED_TERMS --repo <owner>/<repo> < blocked-terms.txt
+```
+
+清單格式與規則：
+
+* 一行一條，空行與 `#` 開頭的註解會略過
+* **少於 3 個字元的詞會被忽略並印 warning**——兩個字元的詞幾乎必然出現在任何 diff 裡，
+  那不是「掃描很嚴格」，是把整條 pipeline 變成永遠拒送
+* 大小寫不敏感：清單寫 `foo-bar`，diff 裡的 `FOO-BAR` 一樣會被攔下
+* **錯誤訊息只給條號不給內容**（「user message 含第 3 條禁用詞」）。
+  CI log 是公開的，把命中的字串印出來就等於親手洩漏它
+
+⚠️ **這份清單本身就是敏感資料，所以走 secret 而不是設定檔。** 把它放進 repo 裡的
+`.txt` 或 workflow YAML 等於自相矛盾——真正要保護的東西反而被 commit 了。
+本機跑 `review-local.sh` 時同名的環境變數也生效。
+
+⚠️ 這道防線擋的是**確定性的字串比對**，不是語意。它攔不住換句話說的同一件事，
+也攔不住你根本沒想到要列進清單的東西。它是最後一道，不是唯一一道。
 
 ## 第 2 步：開 Dependency graph
 
@@ -158,6 +186,8 @@ jobs:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      # 選填。沒設這個 secret 就是空字串，不掃，行為與不寫這行一樣
+      REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
 ```
 
 ---
@@ -204,7 +234,11 @@ file issue」，`--log-failed` 是空的，`actionlint` 也驗不出來——因
       rubric-path: .github/review-rubric.md    # 你自己那份
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
 ```
+
+⚠️ 用自訂 rubric 時特別注意：**rubric 也在掃描範圍內**。你自己那份 rubric 裡若寫了
+內部代號當例子，一樣會被攔下——那是刻意的，它跟 diff 走同一個 request 送出去。
 
 照著 `prompts/review-rubric.md` 改。⚠️ **那份檔案整份就是 system prompt**——
 不要在裡面寫給人看的註解或元評論，它會進 prompt 並影響行為（實測過）。

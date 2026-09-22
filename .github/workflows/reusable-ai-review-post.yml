@@ -11,6 +11,8 @@
 #       uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
 #       secrets:
 #         DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+#         # 選填，不設就不掃：送出前比對的禁用詞清單，命中就拒送、不呼叫 API
+#         REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
 #
 # 關鍵性質（與非 reusable 版相同）：
 #   * 由 workflow_run 觸發，執行的是 default branch 上的檔案 → PR 改不到它
@@ -83,6 +85,14 @@ on:
       DEEPSEEK_API_KEY:
         description: https://platform.deepseek.com/api_keys —— 屬於呼叫方 repo，本 kit 拿不到
         required: true
+      REVIEW_BLOCKED_TERMS:
+        description: >
+          選填。換行分隔的禁用詞清單，送出前比對 diff／PR metadata／rubric，
+          命中就拒送、不呼叫 API（離開碼 3）。大小寫不敏感；空行與 # 註解會略過；
+          少於 3 個字元的詞會被忽略並印 warning（太短會擋下一切）。
+          ⚠️ 走 secret 而不是 input：清單裡的字串本身就是不該公開的東西，
+          放進 repo 或 workflow 檔就自相矛盾了。錯誤訊息只給條號不給內容。
+        required: false
 
 permissions: {}
 
@@ -173,6 +183,8 @@ jobs:
           DEEPSEEK_MODEL: ${{ inputs.model }}
           RUBRIC_PATH: ${{ steps.rubric.outputs.path }}
           TYPED_RULES: ${{ inputs.typed-rules }}
+          # 選填。沒傳就是空字串 → 腳本完全不掃，行為與加這個功能之前一致。
+          REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
         run: |
           # 值一律走 env 再由 shell 展開，不要把 expression 直接內插進 run block
           ARGS=(--diff in/pr.diff --meta in/meta.json --rubric "$RUBRIC_PATH"

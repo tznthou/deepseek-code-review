@@ -265,7 +265,7 @@
 ## 9. 已驗證 vs 未驗證（誠實聲明）
 
 **已在本機驗證**
-- [x] `python3 tools/selftest.py` → 14 組 65 項全通過（diff 行號解析、finding 正規化、JSON 解析容忍與截斷偵測、Markdown 產生、行號過濾與定位、分型別規則挑選、本機入口參數對齊）
+- [x] `python3 tools/selftest.py` → 15 組 79 項全通過（diff 行號解析、finding 正規化、JSON 解析容忍與截斷偵測、Markdown 產生、行號過濾與定位、分型別規則挑選、本機入口參數對齊）
 - [x] 5 個 workflow YAML 全部可被解析
 - [x] Python / Bash 語法檢查通過
 - [x] 檔案複製到 `~/Documents` 後內容一致、自測仍通過

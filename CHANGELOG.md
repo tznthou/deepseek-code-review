@@ -11,6 +11,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- **送出前的禁用詞掃描**（`REVIEW_BLOCKED_TERMS`，選填 secret）。這套工具每次跑都會把
+  diff、PR 標題、rubric 送到 DeepSeek 的 API，而 DeepSeek 的隱私政策明寫會用使用者輸入
+  訓練模型。設了這個 secret 之後，送出前會做一次大小寫不敏感的子字串比對，
+  **命中就拒送、不呼叫 API**（新增離開碼 `3`）。
+  - 判準不是「repo 是 public 還是 private」，是「**這個字串終將公開，還是永遠不該公開**」。
+    前者送出去只是提前，後者的損失不隨時間衰減。
+  - 清單走 secret 不走設定檔——把要保護的字串 commit 進 repo 是自相矛盾的。
+    命中時的錯誤訊息**只給條號不給內容**，因為 CI log 是公開的。
+  - 空行與 `#` 註解會略過；**少於 3 個字元的詞會被忽略並印 warning**。
+    這兩條不是便利功能：空字串是 `in` 任何字串都成立的，沒濾掉會讓整條 pipeline
+    變成永遠拒送，而那個故障看起來像「掃描很嚴格」。
+  - ⚠️ 邊界：確定性字串比對，攔不住換句話說的同一件事，也攔不住沒列進清單的東西。
+    未設這個 secret 時完全不掃，行為與加這個功能之前一致。
+  - `reusable-ai-review-post.yml` 新增同名的選填 secret；本 repo 自己的 `04` caller
+    也接上去（沒設值＝空字串＝不掃）——教別人用的路徑自己不跑，正是靜默分岔的來源。
+
 ### Fixed
 
 - **`extract_json` 不再讓「內容不完整」偽裝成「格式錯誤」。** 第二層 fallback 用
@@ -30,10 +48,15 @@
 
 ### Changed
 
-- `tools/selftest.py` 從 12 組 49 項增加到 **14 組 65 項**，新增的兩組涵蓋上述兩項修正
-  （含「括號平衡但語法錯」「收尾多過開頭」兩個誤報探針，以及字串內含括號、
-  跳脫引號這些不可誤判的護欄）。README badge 與 `SETUP-CHECKLIST.md` §9 一併更新
-  ——後兩處先前分別停在 `49` 與 `9 項`，是發版時漏掃的。
+- `tools/selftest.py` 從 12 組 49 項增加到 **15 組 79 項**。新增三組：兩組涵蓋上述的
+  `extract_json` 與診斷輸出修正（含「括號平衡但語法錯」「收尾多過開頭」兩個誤報探針，
+  以及字串內含括號、跳脫引號這些不可誤判的護欄），一組涵蓋禁用詞掃描
+  （含「清單只有空行」「詞太短」兩個防止靜默擋一切的探針，以及一條專門釘住
+  「回傳值不可以帶出禁用詞本身」的斷言）。README badge 與 `SETUP-CHECKLIST.md` §9
+  一併更新——後兩處先前分別停在 `49` 與 `9 項`，是發版時漏掃的。
+- `review-local.sh` 檔頭不再教 `export DEEPSEEK_API_KEY=sk-xxxx`：那會把金鑰明文留在
+  shell history 裡，而 history 不會過期也沒有人在看守。改為提示 `read -rs` 或 macOS
+  Keychain 的取法，並說明這支腳本只從環境變數讀、不吃命令列參數（後者會出現在 `ps`）。
 
 - `codeql-config.yml` 加上 `threat-models: local`。**預設的 threat model 只把「遠端」
   輸入當汙染源**，命令列參數、環境變數、檔案系統屬於 local source——所以
