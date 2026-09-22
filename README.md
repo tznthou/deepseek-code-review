@@ -459,6 +459,39 @@ default branch 的版本」），不是要求模型管住自己。
    而下游 `deepseek_review.py` 的 `truncate()` 本來就是在檔案邊界切的，
    第一層卻先把輸入弄壞了。
 
+#### 2026-09-22 的四次 dogfood：4 筆 finding、**0 筆成立**
+
+同一天連續四個 PR（都是這個 kit 自己的改動）跑完的實際數字：
+
+| PR | 內容 | finding | 逐筆驗證後成立 |
+|---|---|---|---|
+| #20 | parser 修正 | 0（`verdict=approve`） | — |
+| #21 第一次 | 禁用詞掃描 | **解析失敗、exit 2** | — |
+| #22 | parser 修正 | 1 | **0** |
+| #21 第二次 | 同上 + 文件 | 3 | **0** |
+
+三筆不成立的失效模式各不相同，而且都值得記：
+
+1. **假設的輸入情境不存在**——「若傳入 bytes 會拋例外」，而唯一的呼叫點是
+   `os.environ.get()`，它只回 `str` 或 `None`。
+2. **報「已經做了的事」**——建議「至少先把文字轉為小寫一次」，而 `lower()`
+   本來就在外層迴圈裡，每個區段只轉一次。這是 §4.8 那個盲區的又一個實例。
+   它另外建議的 Aho-Corasick 需要第三方套件，與本 kit「只用標準函式庫」的約束衝突。
+3. **技術斷言與當天的實測直接矛盾**——說 secret 走 `env:`「可能導致值未正確遮蔽」，
+   而 Actions 確實會遮蔽（同一天實測：清單裡一條兩字元的 `ab`，讓 log 裡的
+   `reusable` 變成 `reus***le`）。而且走 `env:` 正是本 repo 修 shell injection
+   時定下的正解。
+
+⚠️ **這批數字不推翻前面的結論，也不強化它。** 四個 PR 的改動以文件、測試與
+錯誤訊息為主，正是 §4.8 說的「低訊號標的」；`n=4` 也太小。放在這裡是因為
+**失效模式比成立率有資訊量**——尤其第 3 筆，它的斷言可以用同一天的實測直接證偽。
+
+一個正面訊號：那批裡有一筆 `major` 因為「片段多重命中（2 處），不猜」被定位層
+擋下、沒貼成 inline。那是 `locate.py` 按設計在運作（見上面「行號由程式算」那節）。
+
+至於 #21 第一次那個**解析失敗**——那不是模型的問題，是 `extract_json` 自己的
+bug（把 finding 內容裡的 code fence 當成整份回應的外包裝），`v1.3.0` 修掉了。
+
 第 1 筆特別值得一提：它正是 §2 步驟 5 rubric 範例第 2 條的形狀
 （「失敗必須可見：吞掉錯誤而呼叫端又不檢查」），只是載體不是 `2>/dev/null`
 而是 `check=False`。**這個工具抓到了我們自己寫進 rubric 的那類問題。**
@@ -657,6 +690,7 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 | **每個 step 都 success、`review.md` 完整，但 PR 上一則留言都沒有** | `gh pr` 子命令靠當前目錄的 git remote 推斷 repo，走 reusable 時工作目錄根沒有 git repo。`v1.0.2` 補上 `--repo` 修掉，並改成失敗時印 `::warning::`。若你複製的是舊版腳本，檢查 `gh pr review` 有沒有帶 `--repo` |
 | log 出現 `重新定位 A → B` | 正常。行號由程式用程式碼片段比對算出，模型報的當備援——實測它報的行號 16 筆只有 1 筆真的指對。見 §8 |
 | **改了 kit 自己的 code，PR 跑完全綠卻看不到效果** | 本 repo 的 `03`／`04` 引用 `@v1`，`.kit` checkout 的是**已發布版本**，PR 裡的改動一行都不會執行。而且 `04` 由 `workflow_run` 觸發、跑的是 default branch 的 workflow，所以連「在 branch 上改 `kit-ref`」都無效。要驗只能走發布流程：合併 → 打 tag → 移動 `v1` → 下一個 PR |
+| **caller 新傳一個 secret，merge 進 default branch 之後 `04` 變成 `startup_failure`** | 你的 caller 引用 `@v1`，而那個 secret 是**還沒發版**的 reusable 才認識的。PR 上驗不到——`04` 由 `workflow_run` 觸發、跑的是 **default branch** 的 caller，merge 前那還是舊的。所以它只在「merge 後、發版前」這段窗口炸。**2026-09-22 本 repo 自己踩過**：`v1.3.0` 發版前的兩分鐘內，main 上的 `04` 是壞的。順序要反過來：**先發版，再讓 caller 傳新 secret**；或把 caller 的 `kit-ref` 釘到含該 secret 的版本 |
 | 05 卡在 approval / 工具被拒 | headless 無互動審批通道，屬預期行為。檢查是否誤讓 agent 需要寫入權限 |
 | 05 抓不到 `@deepseek-ai/dsh` | 確認 Node 版本為 `^22.19.0 \|\| >=24.0.0`；首次下載數百 MB，確認 cache 生效 |
 | `dsh` 說 sandbox 不可用（`SANDBOX_UNAVAILABLE`） | 容器內缺少 bwrap/Landlock 等後端。唯讀工具通常不受影響；若需要寫入請改用 04 路線 |
