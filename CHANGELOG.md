@@ -9,6 +9,21 @@
 > 引用它的 repo 不必改任何東西就會拿到修正版。代價是破壞性變更也會自動推播——
 > 所以 v1 這條線上的相容性承諾見 README §5，本檔的 `BREAKING` 標記請特別留意。
 
+## [Unreleased]
+
+### Docs
+
+- README §7 新增一列：**caller 新傳一個 secret、merge 進 default branch 之後 `04`
+  變成 `startup_failure`**。原因是 caller 引用 `@v1`，而那個 secret 是還沒發版的
+  reusable 才認識的。這個失敗在 PR 上驗不到——`04` 由 `workflow_run` 觸發、跑的是
+  **default branch** 的 caller，merge 前那還是舊的，所以它只在「merge 後、發版前」
+  這段窗口炸。本 repo 自己在 `v1.3.0` 發版前踩過，窗口大約兩分鐘。
+  正確順序是**先發版、再讓 caller 傳新 secret**。
+- README §8 補上 2026-09-22 的四次 dogfood：**4 筆 finding、0 筆成立**，
+  三筆的失效模式各不相同（假設的輸入情境不存在、報「已經做了的事」、
+  技術斷言與當天的實測直接矛盾）。已註明這批數字不推翻也不強化既有結論——
+  標的以文件與測試為主、`n=4` 太小，放進來是因為失效模式比成立率有資訊量。
+
 ## [1.3.0] - 2026-09-22
 
 ### Added
