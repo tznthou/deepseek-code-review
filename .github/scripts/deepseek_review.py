@@ -236,6 +236,73 @@ def truncation_error(
     return f"輸出被 max_tokens={max_tokens} 截斷（content {len(content)} 字元）。{hint}"
 
 
+def diagnostic_excerpt(content: str | None, head: int = 1200, tail: int = 800) -> str:
+    """解析失敗時要印的原始輸出。頭尾都要，總長度一定要講。
+
+    2026-09-22：原本只印 `content[:2000]`。內容不完整時**斷點在尾巴**，
+    印開頭 2000 字元正好把唯一有診斷價值的地方切掉，而且看不出總長度——
+    於是「被切斷」和「模型從頭就亂吐」在 log 上長得一模一樣。
+    """
+    content = content or ""
+    if len(content) <= head + tail:
+        return f"（共 {len(content)} 字元）\n{content}"
+    omitted = len(content) - head - tail
+    return (
+        f"（共 {len(content)} 字元，中間省略 {omitted} 字元）\n"
+        f"{content[:head]}\n"
+        f"...[省略 {omitted} 字元]...\n"
+        f"{content[-tail:]}"
+    )
+
+
+def incomplete_json_error(fragment: str) -> str | None:
+    """判斷這段 JSON 是不是「還沒收完」，是的話回傳該印的訊息，否則回 None。
+
+    2026-09-22：`extract_json` 的第二層 fallback 用 `rfind("}")` 找結尾，內容被
+    切斷時它會抓到**中途某一筆的收尾 `}`**，切出來的片段必然語法錯誤，於是
+    `json.JSONDecodeError` 指向那個片段裡的奇怪位置（實例：column 2）——讀起來
+    像模型吐了畸形 JSON，真因卻是內容不完整。這個函式的用途就是把兩者分開。
+
+    與 `truncation_error` 是**不同路徑**：那條看 `finish_reason == "length"`，
+    API 自己說了它截斷；這條處理的是 finish_reason 正常、content 卻真的少了尾巴
+    （根因在 API 側，未確認）。
+
+    回 None 的情形要特別小心：括號平衡但語法錯（`{"a": }`）是真的畸形，
+    收尾多過開頭（`{"a":1}}`）也是——兩者都不能被講成「不完整」。
+    """
+    depth = 0
+    in_string = False
+    escaped = False
+    for ch in fragment:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth < 0:
+                # 收尾多過開頭：這是畸形，不是沒收完
+                return None
+    tail = (
+        "內容不完整，不是格式錯誤。若 finish_reason 不是 length，代表 API 回報正常"
+        "卻少給了內容——先重跑一次；持續發生就調高 --max-tokens，"
+        "或用 --max-diff-chars 縮小送出的 diff"
+    )
+    if in_string:
+        return f"JSON 在字串中途結束（最後一個字串沒有收尾引號）。{tail}"
+    if depth > 0:
+        return f"JSON 在中途結束（還有 {depth} 層括號沒有收尾）。{tail}"
+    return None
+
+
 def extract_json(text: str) -> dict:
     """模型有時仍會包 code fence 或加前後綴，這裡做寬鬆解析。"""
     text = text.strip()
@@ -248,7 +315,21 @@ def extract_json(text: str) -> dict:
         pass
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end > start:
-        return json.loads(text[start : end + 1])
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError as err:
+            # rfind 抓到的可能是中途某一筆的收尾 `}`，先問「是不是根本沒收完」，
+            # 是的話講實話，不要讓 column 2 這種位置去冒充格式問題。
+            hint = incomplete_json_error(text[start:])
+            if hint:
+                raise ValueError(hint) from err
+            raise
+    if start != -1:
+        # 有開頭 `{` 卻連一個 `}` 都沒有，是最明顯的截斷，
+        # 報「找不到 JSON 物件」會把人帶去查格式。
+        hint = incomplete_json_error(text[start:])
+        if hint:
+            raise ValueError(hint)
     raise ValueError("回應中找不到 JSON 物件")
 
 
@@ -461,7 +542,7 @@ def main() -> int:
     try:
         result = normalize(extract_json(content))
     except (ValueError, json.JSONDecodeError) as err:
-        log(f"[error] 無法解析模型輸出：{err}\n--- 原始輸出 ---\n{content[:2000]}")
+        log(f"[error] 無法解析模型輸出：{err}\n--- 原始輸出 ---\n{diagnostic_excerpt(content)}")
         return 2
 
     # 定位要在產出 review.md **之前**做：摘要表格裡的 `path:line` 與稍後貼出去的

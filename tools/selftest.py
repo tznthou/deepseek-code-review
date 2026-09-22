@@ -332,6 +332,75 @@ def main() -> int:
     # 截斷訊息叫使用者調高 --max-tokens，本機入口就必須真的調得動。
     check("--max-tokens 可由環境變數覆寫", "MAX_TOKENS" in local_sh, "review-local.sh")
 
+    print("[13] extract_json：內容不完整不可以偽裝成格式錯誤")
+    # 2026-09-22：第二層 fallback 的 rfind("}") 會抓到「中途某一筆的收尾 }」，
+    # 切出來的片段必然語法錯誤，於是錯誤訊息指向片段裡的奇怪位置（實例：column 92）
+    # ——讀起來像模型吐了畸形 JSON，真因卻是內容少了尾巴。
+    # 與 [11] 是不同路徑：那條看 finish_reason == "length"，這條 finish_reason 正常。
+    def parse_err(text: str) -> str:
+        try:
+            reviewer.extract_json(text)
+        except Exception as err:  # noqa: BLE001 - 這裡要驗的就是錯誤訊息本身
+            return str(err)
+        return ""
+
+    # 字串都收好了，但 { [ { 三層沒收尾
+    cut_obj = (
+        '{"verdict": "changes_requested", "findings": ['
+        '{"path": "a.py", "line": 3, "evidence": "ok"}, {"path": "b.py", "line": 9,'
+    )
+    msg = parse_err(cut_obj)
+    check("物件中途截斷講的是不完整", "不完整" in msg, msg)
+    check("物件中途截斷點出還差幾層括號", "括號" in msg, msg)
+    # 真實截斷最常見的樣子：前面有一筆完整的 finding，後面切在 evidence 字串中途。
+    # rfind("}") 在這裡抓得到第一筆的收尾 }，正是偽裝發生的地方。
+    cut_mixed = (
+        '{"verdict": "changes_requested", "findings": ['
+        '{"path": "a.py", "line": 3, "evidence": "ok"}, '
+        '{"path": "b.py", "line": 9, "evidence": "這裡被切'
+    )
+    check("有完整前綴的截斷也不偽裝", "不完整" in parse_err(cut_mixed), parse_err(cut_mixed))
+    check(
+        "字串中途截斷指向字串沒收尾",
+        "字串中途" in parse_err('{"summary": "講到一半就沒了'),
+        parse_err('{"summary": "講到一半就沒了'),
+    )
+    # 有開頭 { 卻連一個 } 都沒有，舊版報「找不到 JSON 物件」會把人帶去查格式
+    check("有 { 無 } 報不完整", "不完整" in parse_err('{"findings": [{"path": "a.py"'), "")
+    # 誤報探針：以下兩種是真的畸形，不可以被講成「不完整」
+    check("括號平衡但語法錯仍報格式錯誤", "不完整" not in parse_err('{"a": }'), parse_err('{"a": }'))
+    # `{"a": 1}}` 兩種實作都解析不了（Extra data），這裡要驗的是它**不會被講成**
+    # 「不完整」——收尾多過開頭是畸形，方向剛好相反。
+    check("收尾多過開頭不判成不完整", "不完整" not in parse_err('{"a": 1}}'), parse_err('{"a": 1}}'))
+    # never-break 護欄：字串裡的括號與跳脫引號不可以被當成結構
+    check("字串內的括號不誤判", reviewer.extract_json('{"msg": "a } b { c"}') == {"msg": "a } b { c"})
+    check("跳脫引號不誤判", reviewer.extract_json(r'{"msg": "說\"嗨\""}') == {"msg": '說"嗨"'})
+
+    print("[14] diagnostic_excerpt：解析失敗要印得出斷點")
+    # 原本只印 content[:2000]。內容不完整時斷點在尾巴，印開頭正好把唯一
+    # 有診斷價值的地方切掉，而且看不出總長度——「被切斷」和「從頭就亂吐」在 log 上同形。
+    big = "H" * 3000 + "TAILMARK"
+    excerpt = reviewer.diagnostic_excerpt(big)
+    check("有講總長度", str(len(big)) in excerpt, excerpt[:60])
+    check("印得到尾巴", "TAILMARK" in excerpt, "尾巴被切掉了")
+    check("短內容整份印出", reviewer.diagnostic_excerpt("abc").endswith("abc"))
+    check("content 為 None 時不崩潰", isinstance(reviewer.diagnostic_excerpt(None), str))
+    # 函式對了但沒接上去等於沒修：釘住解析失敗那條路徑真的走這個函式。
+    # 只看那一行，不掃全檔——docstring 裡留著 `content[:2000]` 講歷史，掃全檔會誤判。
+    src = (ROOT / ".github/scripts/deepseek_review.py").read_text(encoding="utf-8")
+    fail_path = [ln for ln in src.splitlines() if "無法解析模型輸出" in ln]
+    check("找得到解析失敗那行", len(fail_path) == 1, fail_path)
+    check(
+        "解析失敗路徑有接上 diagnostic_excerpt",
+        any("diagnostic_excerpt(content)" in ln for ln in fail_path),
+        fail_path,
+    )
+    check(
+        "沒有退回只印開頭的寫法",
+        not any("content[:2000]" in ln for ln in fail_path),
+        fail_path,
+    )
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")
