@@ -9,7 +9,7 @@
 > 引用它的 repo 不必改任何東西就會拿到修正版。代價是破壞性變更也會自動推播——
 > 所以 v1 這條線上的相容性承諾見 README §5，本檔的 `BREAKING` 標記請特別留意。
 
-## [Unreleased]
+## [1.3.0] - 2026-09-22
 
 ### Added
 
@@ -95,7 +95,8 @@
 
 ### Docs
 
-- `USAGE.md` 釘版本的範例從 `@v1.2.1` 更新到 `@v1.2.2`（v1.2.2 發版時漏掃）。
+- `USAGE.md` 釘版本的範例更新到 `@v1.3.0`。⚠️ 這個位置漏掃過一次——`v1.2.2` 發版時
+  它還停在 `@v1.2.1`，是事後盤點才撈到的。版本號散落處見 README §5。
 - README §8 補上「本 repo 零告警」那句的前提，以及查 PR alert 要用
   `refs/pull/<n>/merge` 而不是 `refs/heads/<branch>`。
 
@@ -224,6 +225,7 @@
   方式導入，不必複製腳本也不必複製 rubric。
 - `USAGE.md`：三步驟導入說明與可直接複製的 caller 範本。
 
+[1.3.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.1.1...v1.2.0
