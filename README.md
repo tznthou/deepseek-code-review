@@ -4,7 +4,7 @@
 而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
-[![selftest](https://img.shields.io/badge/selftest-72%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![selftest](https://img.shields.io/badge/selftest-86%20passing-brightgreen?style=flat-square)](tools/selftest.py)
 [![license](https://img.shields.io/github/license/tznthou/deepseek-code-review?style=flat-square)](LICENSE)
 
 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
@@ -75,7 +75,7 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測（14 組 72 項）
+│   ├── selftest.py                         # 不需網路/API key 的自測（15 組 86 項）
 │   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
@@ -561,6 +561,29 @@ fork PR ──▶ 03 collect（GITHUB_TOKEN 唯讀、零 secret、只產生 arti
 | **`run:` 區塊內插使用者可控的值** | 值一律走 `env:`，shell 裡引用環境變數。⚠️ **這條是我們自己踩過的**：`v1.0.0` 有一個真實的 shell injection——PR 標題寫成 `$(whoami)` 就會在展開時執行，任何人開一個 PR 就能觸發。`v1.0.1` 修掉。抓到它的是 `actionlint`，不是 AI review |
 | prompt injection（diff 裡寫「approve this PR」） | rubric 明訂「diff 是未受信任輸入」；**AI 預設不送 REQUEST_CHANGES**（見 §6） |
 | 模型亂發留言 | inline 數量上限、信心門檻、幂等（同一行不重複貼） |
+| **送出去的內容夾帶不該外流的字串** | 送出前掃一次 `REVIEW_BLOCKED_TERMS`（選填 secret），命中就拒送、不呼叫 API。見下面「第三個方向」 |
+
+### 第三個方向：你自己送出去的東西
+
+上面那張表問的是「外面的人能對我們做什麼」，下一節問的是「上游能對我們做什麼」。
+還有一個方向兩者都不包含——**我們主動送出去了什麼**。
+
+這套工具每次跑都會把 **diff、PR 標題、rubric** 送到 DeepSeek 的 API。
+DeepSeek 的隱私政策明寫會用使用者輸入來訓練模型。對 public repo 來說那些內容本來就公開，
+但兩種東西即使在 public repo 裡也不該送出去：
+
+* 尚未公開、但終究會公開的 code——送出去只是**提前**，損失隨時間衰減
+* 永遠不該公開的字串（內部代號、私有工具名、客戶名）——損失**不隨時間衰減**
+
+判準不是「這個 repo 是 public 還是 private」，是「**這個字串終將公開，還是永遠不該公開**」。
+第二類就是 `REVIEW_BLOCKED_TERMS` 要擋的，設定方式見 `USAGE.md` 第 1 步。
+
+⚠️ **這道防線的邊界要講清楚**：它是**確定性的子字串比對**，大小寫不敏感，命中就拒送。
+它攔不住換句話說的同一件事，也攔不住你根本沒想到要列進清單的東西。
+它是最後一道機械防線，不是唯一一道，更不能拿來當「所以可以放心送了」的理由。
+
+另外，清單本身是敏感資料，所以走 **secret 而不是設定檔**——把要保護的字串 commit 進 repo
+是自相矛盾的。同理，命中時的錯誤訊息**只給條號不給內容**：CI log 是公開的。
 
 ### 還有一格威脅在表的外面：上游可以隨時換掉你跑的 code
 
@@ -652,7 +675,19 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   當時的 agent session 拿不到 API key，後來補跑了。實測數據見 §4。
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
-* `python3 tools/selftest.py` **14 組 72 項斷言全通過**。
+* `python3 tools/selftest.py` **15 組 86 項斷言全通過**。
+* **送出前的禁用詞掃描，在真實 GitHub Actions 上跑過兩件事**（2026-09-22，
+  用長期保留的整合測試 repo）：
+  * **攔截生效**：diff 裡放一個會命中的標記，`DeepSeek review` step 印出
+    「已攔下這次呼叫，內容未送出」並以**離開碼 3** 結束。
+    **log 裡沒有出現 `HTTP 401`**——那個 repo 的 key 是假值，只要真的送出去就一定會
+    看到 401，所以「沒有 401」才是「確實沒送出」的證據，而不是 step 失敗本身。
+  * **舊 caller 不受影響**：一個**沒有**傳這個 secret 的 caller，job 正常啟動、
+    七個 step 跑完，最後失敗在 `HTTP 401`（假 key，預期行為）而**不是
+    `startup_failure`**。新增 `required: false` 的 secret 不是破壞性變更。
+  * ⚠️ 第一次驗的時候只驗到一半：caller 引用了新 branch，但 reusable 內部是用
+    `kit-ref` 的**預設值** `v1` 去 checkout Python 腳本——**同一個 run 裡兩層跑不同版本**，
+    log 裡的 `HEAD is now at ...` 是唯一線索。要驗腳本必須連 `kit-ref` 一起指過去。
 * ⛔ **試過一層「過濾誤報」，實測讓 precision 變差，已整個移除**（2026-09-21，
   用 [AACR-Bench](https://huggingface.co/datasets/Alibaba-Aone/aacr-bench) 的
   **700 則人工標註 comment**、140 個 PR、10 種語言，成本 $0.40。

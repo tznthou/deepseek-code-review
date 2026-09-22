@@ -437,6 +437,47 @@ def main() -> int:
         fail_path,
     )
 
+    print("[15] 送出前掃描：禁用詞命中就拒送，而且訊息不可以洩漏內容")
+    # 這組有一半在驗「它不做什麼」：清單本身就是不該公開的東西，
+    # 介面回傳的是「第幾條」不是值，錯誤訊息也只給條號。
+    terms, ignored = reviewer.load_blocked_terms("alpha-secret\nbeta-private\n")
+    check("正常清單解析出兩條", terms == ["alpha-secret", "beta-private"], terms)
+    check("正常清單沒有東西被忽略", ignored == [], ignored)
+    # ⚠️ 空字串 `in` 任何字串都成立 —— 沒濾掉就變成「永遠拒送」，
+    # 而那個故障看起來像「掃描很嚴格」，不會有人發現。
+    terms_blank, _ = reviewer.load_blocked_terms("\n# 這是註解\nalpha-secret\n   \n")
+    check("空行與 # 註解被略過", terms_blank == ["alpha-secret"], terms_blank)
+    check(
+        "空行沒有讓掃描擋下一切",
+        reviewer.blocked_terms_hits({"x": "完全無關的內容"}, terms_blank) == [],
+        "空字串混進清單會 match 一切",
+    )
+    # 過短同理：兩個字元的詞幾乎必然出現在任何 diff 裡
+    terms_short, ignored_short = reviewer.load_blocked_terms("ab\nalpha-secret\n")
+    check("過短的詞被忽略", terms_short == ["alpha-secret"], terms_short)
+    check("忽略時回報的是行號不是值", ignored_short == [1], ignored_short)
+    # 大小寫：leak-guard 的舊規則只攔小寫形式，實測放行 45%
+    check(
+        "大寫形式仍然命中",
+        len(reviewer.blocked_terms_hits({"diff": "這裡有 ALPHA-SECRET"}, ["alpha-secret"])) == 1,
+    )
+    check(
+        "命中回報正確區段",
+        reviewer.blocked_terms_hits({"rubric": "乾淨", "user": "含 alpha-secret"}, ["alpha-secret"])
+        == [("user", 1)],
+    )
+    check("沒命中就不擋", reviewer.blocked_terms_hits({"user": "乾淨"}, ["alpha-secret"]) == [])
+    check("未設清單等於不掃", reviewer.load_blocked_terms(None) == ([], []))
+    # 核心安全性質：回傳值不可以帶出禁用詞本身，否則下一個人就會把它寫進錯誤訊息
+    leaked = str(reviewer.blocked_terms_hits({"user": "含 alpha-secret"}, ["alpha-secret"]))
+    check("回傳值不含禁用詞本身", "alpha-secret" not in leaked, leaked)
+    # 函式對了但訊息印出值等於沒做：釘住錯誤訊息那幾行
+    # 限定到 log( 那行：docstring 的離開碼說明也含同一串字，不限定會抓到兩行
+    scan_lines = [ln for ln in src.splitlines() if "送出前掃描命中" in ln and "log(" in ln]
+    check("找得到掃描的錯誤訊息", len(scan_lines) == 1, scan_lines)
+    check("錯誤訊息沒有內插禁用詞", not any("term" in ln for ln in scan_lines), scan_lines)
+    check("命中時走離開碼 3", "return 3" in src)
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")

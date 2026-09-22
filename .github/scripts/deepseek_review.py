@@ -13,11 +13,14 @@
   --findings-out 結構化 findings JSON（貼 inline comment 用）
 
 環境變數：
-  DEEPSEEK_API_KEY    必填
-  DEEPSEEK_BASE_URL   預設 https://api.deepseek.com
-  DEEPSEEK_MODEL      預設 deepseek-v4-pro（見 DEFAULT_MODEL 上方的實測註解）
+  DEEPSEEK_API_KEY       必填
+  DEEPSEEK_BASE_URL      預設 https://api.deepseek.com
+  DEEPSEEK_MODEL         預設 deepseek-v4-pro（見 DEFAULT_MODEL 上方的實測註解）
+  REVIEW_BLOCKED_TERMS   選填。換行分隔的禁用詞清單，送出前做大小寫不敏感的
+                         子字串比對，命中就拒送（離開碼 3）。空行與 `#` 註解會
+                         略過。清單本身是敏感資料 → 走 secret，不要進 repo。
 
-離開碼：0 成功；1 設定/API 錯誤；2 模型回傳無法解析。
+離開碼：0 成功；1 設定/API 錯誤；2 模型回傳無法解析；3 送出前掃描命中禁用詞。
 """
 
 from __future__ import annotations
@@ -42,6 +45,9 @@ DEFAULT_BASE_URL = "https://api.deepseek.com"
 # 價差約 4 倍（單次 $0.009–0.013 vs $0.003），但「語氣篤定卻講錯機制」的成本更高，故預設用 pro。
 DEFAULT_MODEL = "deepseek-v4-pro"
 DEFAULT_MAX_DIFF_CHARS = 400_000
+# 禁用詞的最小長度。太短的詞幾乎必然出現在任何 diff 裡，設成「擋下一切」比不掃更糟
+# ——因為它看起來像掃描在運作。
+MIN_BLOCKED_TERM_LEN = 3
 SEVERITY_ORDER = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
 VALID_SEVERITIES = set(SEVERITY_ORDER)
 VALID_SIDES = {"RIGHT", "LEFT"}
@@ -167,6 +173,45 @@ def truncate(diff: str, limit: int) -> tuple[str, bool]:
     if cut <= 0:
         cut = limit
     return diff[:cut] + "\n\n[... diff 已被截斷，請只就以上內容審查 ...]\n", True
+
+
+def load_blocked_terms(raw: str | None) -> tuple[list[str], list[int]]:
+    """解析禁用詞清單（換行分隔），回傳 (可用的詞, 被忽略的行號)。
+
+    清單本身是敏感資料，所以**這個函式回傳的「被忽略」是行號不是值**，
+    呼叫端才不會一不小心把它印進 CI log。
+
+    空行與 `#` 註解直接略過（不算被忽略）。⚠️ 空字串是 `in` 任何字串都成立的，
+    沒濾掉的話整支會變成「永遠拒送」——而那個故障看起來像「掃描很嚴格」。
+    過短的詞同理：兩個字元的詞幾乎必然出現在任何 diff 裡。
+    """
+    terms: list[str] = []
+    ignored: list[int] = []
+    for line_no, line in enumerate((raw or "").splitlines(), start=1):
+        term = line.strip()
+        if not term or term.startswith("#"):
+            continue
+        if len(term) < MIN_BLOCKED_TERM_LEN:
+            ignored.append(line_no)
+            continue
+        # 大小寫一律折平：leak-guard 的舊規則只攔小寫形式，實測放行了 45%
+        terms.append(term.lower())
+    return terms, ignored
+
+
+def blocked_terms_hits(sections: dict[str, str], terms: list[str]) -> list[tuple[str, int]]:
+    """掃描各區段，回傳 [(區段名, 命中的是第幾條)]。
+
+    ⚠️ **刻意不回傳命中的字串**。這個功能存在的理由就是那些字串不該離開本機，
+    把它放進回傳值，下一個人就會把它寫進錯誤訊息，而 CI log 是公開的。
+    """
+    hits: list[tuple[str, int]] = []
+    for name, text in sections.items():
+        lowered = (text or "").lower()
+        for index, term in enumerate(terms, start=1):
+            if term in lowered:
+                hits.append((name, index))
+    return hits
 
 
 def chat_completion(
@@ -513,6 +558,35 @@ def main() -> int:
             "這些規則補充上面的通用要求，不取代它們。\n\n" + extra_rules + "\n"
         )
         log(f"[info] 套用補充規則：{', '.join(used_rules)}")
+
+    # 送出前的最後一道：確定性掃描，命中就拒送。
+    # ⚠️ 這道擋的是**離開本機的內容**，所以位置必須在這裡——PreToolUse hook 那類
+    # 本機守門員管不到 Actions 上的這支 Python。清單走環境變數（由 secret 餵），
+    # 不進 repo：清單本身就是不該公開的東西。
+    blocked_terms, ignored_lines = load_blocked_terms(os.environ.get("REVIEW_BLOCKED_TERMS"))
+    for line_no in ignored_lines:
+        log(
+            f"[warn] REVIEW_BLOCKED_TERMS 第 {line_no} 行不足 "
+            f"{MIN_BLOCKED_TERM_LEN} 個字元，已忽略（太短會擋下一切）"
+        )
+    if blocked_terms:
+        hits = blocked_terms_hits(
+            {
+                "system prompt（rubric）": system_prompt,
+                "user message（metadata + diff + 補充規則）": user_prompt,
+            },
+            blocked_terms,
+        )
+        if hits:
+            for section, index in hits:
+                log(f"[error] 送出前掃描命中：{section} 含第 {index} 條禁用詞")
+            log(
+                f"[error] 已攔下這次呼叫，內容未送出（共 {len(hits)} 處）。"
+                "訊息只給條號不給內容——印出來就等於把它洩漏到 CI log 了。"
+                "請改掉 diff／PR 標題／rubric 裡的相應字串後重跑。"
+            )
+            return 3
+        log(f"[info] 送出前掃描通過（{len(blocked_terms)} 條禁用詞）")
 
     payload = {
         "model": args.model,

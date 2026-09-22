@@ -2,15 +2,25 @@
 # 在本機跑一次 DeepSeek review，不碰 GitHub、不貼留言。
 #
 # 用法：
-#   export DEEPSEEK_API_KEY=sk-xxxx
 #   ./review-local.sh                 # 預設比對 origin/main
 #   ./review-local.sh origin/develop  # 指定 base ref
 #   ./review-local.sh HEAD~3          # 也可以只比最近三個 commit
 #
+# 先給 key。⚠️ 不要寫成 `export DEEPSEEK_API_KEY=sk-xxxx`，那會把金鑰明文留在
+# ~/.bash_history／~/.zsh_history 裡，而 shell history 不會過期也沒有人在看守。
+# 改用下面任一種：
+#   read -rs DEEPSEEK_API_KEY && export DEEPSEEK_API_KEY    # 互動輸入，值不進 history
+#   export DEEPSEEK_API_KEY="$(security find-generic-password -w -s deepseek-api-key)"
+#                                                            # macOS Keychain，先存過一次
+# 這支腳本只從環境變數讀，不吃命令列參數——後者會出現在 `ps` 的輸出裡。
+#
 # 環境變數：
-#   DEEPSEEK_MODEL  模型（預設 deepseek-v4-pro）
-#   MAX_TOKENS      輸出上限（預設 8192）。缺陷密度高的 diff 會吐超過這個額度，
-#                   被截斷時腳本會直接告訴你要調高，不會偽裝成解析失敗。
+#   DEEPSEEK_MODEL         模型（預設 deepseek-v4-pro）
+#   MAX_TOKENS             輸出上限（預設 8192）。缺陷密度高的 diff 會吐超過這個額度，
+#                          被截斷時腳本會直接告訴你要調高，不會偽裝成解析失敗。
+#   REVIEW_BLOCKED_TERMS   選填。換行分隔的禁用詞，送出前比對 diff／metadata／rubric，
+#                          命中就拒送（離開碼 3）。清單本身也是敏感資料，
+#                          同樣不要用 `export ...=值` 的寫法寫進 history。
 #
 # 產出：/tmp/deepseek-review.md（人看）與 /tmp/deepseek-findings.json（機器看）
 

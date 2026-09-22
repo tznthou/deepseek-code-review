@@ -11,7 +11,11 @@
 # 因此 fork PR 也能安全地跑 AI review。
 #
 # 需要的 repo secret：
-#   DEEPSEEK_API_KEY   （https://platform.deepseek.com/api_keys）
+#   DEEPSEEK_API_KEY       （https://platform.deepseek.com/api_keys）
+#   REVIEW_BLOCKED_TERMS   選填，本 repo 沒設。換行分隔的禁用詞，送出前比對
+#                          diff／metadata／rubric，命中就拒送、不呼叫 API。
+#                          這裡照樣把它接上去，是因為「教別人用的路徑自己不跑」
+#                          正是靜默分岔的來源——沒設時是空字串，行為與不接一樣。
 #
 # ⚠️ 改成 caller 之後失去的一項能力：舊版可以打開 `environment: ai-review` 做
 #    「貼留言前人工核可」。caller 的 job 用 `uses:` 時不能同時設 `environment:`，
@@ -38,3 +42,4 @@ jobs:
     uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
