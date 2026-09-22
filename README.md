@@ -676,6 +676,18 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
 * `python3 tools/selftest.py` **15 組 79 項斷言全通過**。
+* **送出前的禁用詞掃描，在真實 GitHub Actions 上跑過兩件事**（2026-09-22，
+  用長期保留的整合測試 repo）：
+  * **攔截生效**：diff 裡放一個會命中的標記，`DeepSeek review` step 印出
+    「已攔下這次呼叫，內容未送出」並以**離開碼 3** 結束。
+    **log 裡沒有出現 `HTTP 401`**——那個 repo 的 key 是假值，只要真的送出去就一定會
+    看到 401，所以「沒有 401」才是「確實沒送出」的證據，而不是 step 失敗本身。
+  * **舊 caller 不受影響**：一個**沒有**傳這個 secret 的 caller，job 正常啟動、
+    七個 step 跑完，最後失敗在 `HTTP 401`（假 key，預期行為）而**不是
+    `startup_failure`**。新增 `required: false` 的 secret 不是破壞性變更。
+  * ⚠️ 第一次驗的時候只驗到一半：caller 引用了新 branch，但 reusable 內部是用
+    `kit-ref` 的**預設值** `v1` 去 checkout Python 腳本——**同一個 run 裡兩層跑不同版本**，
+    log 裡的 `HEAD is now at ...` 是唯一線索。要驗腳本必須連 `kit-ref` 一起指過去。
 * ⛔ **試過一層「過濾誤報」，實測讓 precision 變差，已整個移除**（2026-09-21，
   用 [AACR-Bench](https://huggingface.co/datasets/Alibaba-Aone/aacr-bench) 的
   **700 則人工標註 comment**、140 個 PR、10 種語言，成本 $0.40。

@@ -89,7 +89,9 @@ on:
         description: >
           選填。換行分隔的禁用詞清單，送出前比對 diff／PR metadata／rubric，
           命中就拒送、不呼叫 API（離開碼 3）。大小寫不敏感；空行與 # 註解會略過；
-          少於 3 個字元的詞會被忽略並印 warning（太短會擋下一切）。
+          少於 3 個字元的詞會被忽略並印 warning（太短會擋下一切，而且 Actions
+          會把 secret 值在 log 裡遮成 ***，連它出現在別的字當中都遮 ——
+          放一條兩字元的詞會讓整份 log 變成馬賽克）。
           ⚠️ 走 secret 而不是 input：清單裡的字串本身就是不該公開的東西，
           放進 repo 或 workflow 檔就自相矛盾了。錯誤訊息只給條號不給內容。
         required: false

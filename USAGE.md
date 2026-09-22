@@ -40,8 +40,13 @@ gh secret set REVIEW_BLOCKED_TERMS --repo <owner>/<repo> < blocked-terms.txt
 清單格式與規則：
 
 * 一行一條，空行與 `#` 開頭的註解會略過
-* **少於 3 個字元的詞會被忽略並印 warning**——兩個字元的詞幾乎必然出現在任何 diff 裡，
-  那不是「掃描很嚴格」，是把整條 pipeline 變成永遠拒送
+* **少於 3 個字元的詞會被忽略並印 warning**——有兩個理由，第二個比第一個更立即：
+  1. 兩個字元的詞幾乎必然出現在任何 diff 裡。那不是「掃描很嚴格」，
+     是把整條 pipeline 變成永遠拒送
+  2. **GitHub Actions 會把 secret 的值在 log 裡遮成 `***`，包括它出現在別的字當中的時候。**
+     2026-09-22 實測：清單裡放了一條兩個字元的 `ab`，整份 log 的 `reusable` 都變成
+     `reus***le`。這個副作用跟那條詞有沒有真的命中**無關**——只要它在 secret 裡，
+     log 就會被打成馬賽克。任何短字串 secret 都有同樣問題
 * 大小寫不敏感：清單寫 `foo-bar`，diff 裡的 `FOO-BAR` 一樣會被攔下
 * **錯誤訊息只給條號不給內容**（「user message 含第 3 條禁用詞」）。
   CI log 是公開的，把命中的字串印出來就等於親手洩漏它
