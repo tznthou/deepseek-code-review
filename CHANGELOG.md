@@ -11,8 +11,33 @@
 
 ## [Unreleased]
 
+### Security
+
+- `locate.py` 從 evidence／body 挖『』引號內容的 regex（`『(.+?)』`，`re.S`）遇到沒有收尾的
+  『 會退化成**平方時間**：每個 『 都各自往後掃到字串尾。輸入是模型輸出，PR 的 diff
+  可以透過 prompt injection 左右它，而它跑在 `04`（帶 secret 的那一側）。
+  實測 64K 字元 5.4 秒、128K 字元 21.7 秒。
+  - **實際風險低**：模型輸出上限是 8192 token（reusable 沒有開放調整）。以本機實測外推
+    （runner 抓慢 3 倍、兩支 script 各跑一次），要撞到 job 的 20 分鐘 timeout 得塞進
+    約 39 萬字元。不會外洩任何東西，最壞是拖慢那一個 PR 的 review。
+  - 改成 `str.find` 手寫迴圈，結果與原 regex 逐筆相同（隨機 30 萬筆加 13 個邊界比對），
+    時間變線性（128K 字元：21.7 秒 → 0.04 毫秒）。
+  - 這筆是 CodeQL `py/polynomial-redos` 報的。同一批另外三筆（`deepseek_review.py:145`、
+    `locate.py:57`、`post_review.py:68`）實測線性，已標為 false positive——保護來自
+    `re.M` 與 `splitlines()`，同一個 regex 拿掉這層就是平方。
+
+### Changed
+
+- `tools/selftest.py` 從 15 組 86 項增加到 **16 組 93 項**：新增一組釘住上面那筆修正。
+  前五項驗結果沒變（巢狀、緊接的 』、跨行、沒有收尾），**修改前後都必須通過**；
+  後兩項是 64K 字元的時間探針，修改前各跑 5.4 秒而 FAIL。第二種形狀（唯一的 』 在
+  最前面）擋的是「先查字串裡有沒有 』 再跑 regex」這種不完整的修法。
+
 ### Docs
 
+- README §8 補上「零告警」的現況：#19 打開 local threat model 之後，本 repo 自己從
+  0 筆變 31 筆，PR 上的 CodeQL check 照樣是綠的，一天半沒有人發現。記下 4 筆 ReDoS
+  的分流結果，以及其餘 27 筆尚未逐筆處理。
 - README §7 新增一列：**caller 新傳一個 secret、merge 進 default branch 之後 `04`
   變成 `startup_failure`**。原因是 caller 引用 `@v1`，而那個 secret 是還沒發版的
   reusable 才認識的。這個失敗在 PR 上驗不到——`04` 由 `workflow_run` 觸發、跑的是

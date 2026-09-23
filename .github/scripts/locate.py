@@ -140,9 +140,34 @@ def extract_snippets(*sources: str) -> list[str]:
         if stripped and "『" not in stripped and "`" not in stripped:
             out.append(stripped)
             continue
-        out.extend(m.group(1) for m in re.finditer(r"『(.+?)』", src, re.S))
+        out.extend(_corner_quoted(src))
         out.extend(m.group(1) for m in re.finditer(r"`([^`]+)`", src))
     return _dedupe(out)
+
+
+def _corner_quoted(src: str) -> list[str]:
+    """挖出『』括起來的內容，結果與 `re.finditer(r"『(.+?)』", src, re.S)` 逐筆相同。
+
+    ⚠️ 不要改回 regex：`『(.+?)』` 遇到沒有收尾的 『 時，每個 『 都會各自往後掃到
+    字串尾——平方時間（CodeQL `py/polynomial-redos`）。2026-09-23 實測 64K 字元
+    5.4 秒、128K 字元 21.7 秒，而輸入是模型輸出的 evidence / body，diff 裡的
+    prompt injection 可以左右它。
+    這個迴圈是線性的：從某個 『 往後找不到 』，後面的 『 也不可能找到，直接結束。
+    （先砍掉最後一個 』 之後的尾巴再跑 regex 也是線性，但那得靠「收尾一定存在」這個
+    推論撐著，regex 本身仍是平方的；迴圈不用靠推論。）
+    """
+    out: list[str] = []
+    pos = 0
+    while True:
+        start = src.find("『", pos)
+        if start == -1:
+            return out
+        # `.+?` 至少吃一個字元：緊接在 『 後面的 』 算內容，收尾從 start + 2 起找。
+        end = src.find("』", start + 2)
+        if end == -1:
+            return out
+        out.append(src[start + 1 : end])
+        pos = end + 1
 
 
 def locate_snippet(
