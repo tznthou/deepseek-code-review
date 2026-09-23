@@ -11,6 +11,14 @@
 
 ## [Unreleased]
 
+### Docs
+
+- README §8：CodeQL 其餘 27 筆（`py/path-injection` 25、`py/full-ssrf` 2）分流完畢，
+  **0 筆成立、全部以 won't fix dismiss**。source 全是 argv 或環境變數，每個執行情境裡
+  設值的都是本來就有同等權限的一方；不受信任的資料（artifact、模型輸出）只被讀，
+  不拿來組路徑或 URL。原本那句「27 筆的汙染源是 workflow 寫死的 argv」說過頭了——
+  驗過的只有 `04` 側 13 筆，`tools/` 的 14 筆根本不是由寫死的 workflow 呼叫的，已改寫。
+
 ## [1.3.1] - 2026-09-23
 
 ### Security
