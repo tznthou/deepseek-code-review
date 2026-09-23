@@ -266,7 +266,7 @@
 
 **已在本機驗證**
 - [x] `python3 tools/selftest.py` → 16 組 93 項全通過（diff 行號解析、finding 正規化、JSON 解析容忍與截斷偵測、超大 diff 截斷、Markdown 產生、行號過濾與定位、已貼留言的冪等判定、摘要貼回指定 repo、分型別規則挑選、本機入口參數對齊、解析失敗的診斷輸出、送出前禁用詞掃描、片段挖取不退化成平方時間）
-- [x] 5 個 workflow YAML 全部可被解析
+- [x] 10 個 workflow YAML 全部通過 `actionlint`
 - [x] Python / Bash 語法檢查通過
 - [x] 檔案複製到 `~/Documents` 後內容一致、自測仍通過
 - [x] **所有 action 版本與 inputs**：2026-09-17 首驗、2026-09-19 複驗，皆以 GitHub API
