@@ -13,7 +13,7 @@ import re
 import sys
 import time
 
-ROOT =pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def load(rel: str, name: str):
