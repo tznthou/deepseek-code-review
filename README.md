@@ -4,7 +4,7 @@
 而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
-[![selftest](https://img.shields.io/badge/selftest-86%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![selftest](https://img.shields.io/badge/selftest-93%20passing-brightgreen?style=flat-square)](tools/selftest.py)
 [![license](https://img.shields.io/github/license/tznthou/deepseek-code-review?style=flat-square)](LICENSE)
 
 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
@@ -75,7 +75,7 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測（15 組 86 項）
+│   ├── selftest.py                         # 不需網路/API key 的自測（16 組 93 項）
 │   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
@@ -709,7 +709,7 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   當時的 agent session 拿不到 API key，後來補跑了。實測數據見 §4。
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
-* `python3 tools/selftest.py` **15 組 86 項斷言全通過**。
+* `python3 tools/selftest.py` **16 組 93 項斷言全通過**。
 * **送出前的禁用詞掃描，在真實 GitHub Actions 上跑過兩件事**（2026-09-22，
   用長期保留的整合測試 repo）：
   * **攔截生效**：diff 裡放一個會命中的標記，`DeepSeek review` step 印出
@@ -794,6 +794,15 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   腳本、吃的就是 argv 與環境變數，所以 `codeql-config.yml` 已經打開這個設定。
   ⚠️ 查結果時注意：**PR 的 alert 在 `refs/pull/<n>/merge`**，查
   `refs/heads/<branch>` 會得到 0 筆，看起來像沒報。
+  ⚠️ **2026-09-23 補充：打開 local threat model 之後，本 repo 自己就不是零告警了。**
+  #19 merge 後的第一次分析從 0 筆跳到 **31 筆**（`py/path-injection` 25、
+  `py/polynomial-redos` 4、`py/full-ssrf` 2），之後一直停在 31——PR 上的 CodeQL check
+  照樣是綠的，所以一天半沒有人發現。逐筆看過的部分：
+  * 4 筆 ReDoS 在本機用最壞輸入實測：**1 筆成立、已修**（`locate.py` 挖『』的 regex，
+    平方時間）；**3 筆是線性的、標為 false positive**——保護來自 `re.M` 與
+    `splitlines()`，同一個 regex 拿掉這層就是平方，重構時要保住。
+  * 其餘 27 筆的汙染源是 workflow 寫死的 argv 與環境變數（`04` 側 13 筆已逐行確認），
+    正是 local threat model 預告過的代價；**尚未逐筆處理**。
   同時驗掉一個**不會報錯的失敗模式**：這套 kit 原本放在 `code-review-kit/` 子目錄下，
   五個 workflow 的實際觸發次數是**零**——GitHub Actions 只掃 `<repo-root>/.github/workflows/`，
   放錯位置既不觸發也不警告。詳見 §2 步驟 1 的警告。

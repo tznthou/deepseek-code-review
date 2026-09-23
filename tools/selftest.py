@@ -11,8 +11,9 @@ import json
 import pathlib
 import re
 import sys
+import time
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT =pathlib.Path(__file__).resolve().parent.parent
 
 
 def load(rel: str, name: str):
@@ -477,6 +478,46 @@ def main() -> int:
     check("找得到掃描的錯誤訊息", len(scan_lines) == 1, scan_lines)
     check("錯誤訊息沒有內插禁用詞", not any("term" in ln for ln in scan_lines), scan_lines)
     check("命中時走離開碼 3", "return 3" in src)
+
+    print("[16] extract_snippets：『』 沒有收尾時不可以退化成平方時間")
+    # 2026-09-23 CodeQL `py/polynomial-redos`：舊版用 `『(.+?)』`（re.S），遇到沒有收尾的 『
+    # 每個 『 都各自往後掃到字串尾。實測 64K 字元 5.4 秒、128K 字元 21.7 秒；輸入是模型
+    # 輸出的 evidence / body，diff 裡的 prompt injection 可以左右它。
+    # 前五項釘「結果沒變」，新舊版都該 PASS；後兩項釘「不再平方」，舊版必須 FAIL。
+    check(
+        "『』 與反引號都挖得出來",
+        locator.extract_snippets("看『foo_bar_baz()』和 `qux_quux()`") == ["foo_bar_baz()", "qux_quux()"],
+        locator.extract_snippets("看『foo_bar_baz()』和 `qux_quux()`"),
+    )
+    check(
+        "巢狀：從第一個 『 取到第一個 』",
+        locator.extract_snippets("『outer『inner_code()』") == ["outer『inner_code()"],
+        locator.extract_snippets("『outer『inner_code()』"),
+    )
+    check(
+        "緊接在 『 後面的 』 算內容（.+? 至少吃一個字元）",
+        locator.extract_snippets("『』long_enough』") == ["』long_enough"],
+        locator.extract_snippets("『』long_enough』"),
+    )
+    check(
+        "內容可以跨行（re.S 語意）",
+        locator.extract_snippets("『line_one\nline_two』") == ["line_one\nline_two"],
+        locator.extract_snippets("『line_one\nline_two』"),
+    )
+    check(
+        "沒有收尾就沒有片段",
+        locator.extract_snippets("『unclosed_one『unclosed_two") == [],
+        locator.extract_snippets("『unclosed_one『unclosed_two"),
+    )
+    # 第二種形狀擋的是「先查字串裡有沒有 』 再跑 regex」這種修法：』 在最前面照樣平方。
+    for label, text in (
+        ("『 沒有收尾", "『" + "『a" * 32_000),
+        ("唯一的 』 在最前面", "』" + "『a" * 32_000),
+    ):
+        started = time.perf_counter()
+        locator.extract_snippets(text)
+        elapsed = time.perf_counter() - started
+        check(f"64K 字元、{label}：0.5 秒內跑完", elapsed < 0.5, f"{elapsed:.2f}s")
 
     print()
     if failures:
