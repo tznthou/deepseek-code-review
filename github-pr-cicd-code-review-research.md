@@ -3,7 +3,7 @@
 > 研究日期：2026-09-17 ｜ 範圍：GitHub 原生 CI/CD 審查機制、主流工具地圖、
 > AI code review 的三條路線、以及 **DeepSeek Harness（`dsh`）能否做自動 code review**
 >
-> 配套可執行實作：本 repo 根目錄的 kit（5 個 workflow + 2 支腳本 + rubric）
+> 配套可執行實作：本 repo 根目錄的 kit（10 個 workflow + 3 支腳本 + rubric）
 >
 > 標註慣例：✅ 已由官方來源查證 ｜ ⚠️ 推論或需複核 ｜ ❌ 查證後確認不成立
 
