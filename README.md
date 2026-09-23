@@ -797,12 +797,20 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   ⚠️ **2026-09-23 補充：打開 local threat model 之後，本 repo 自己就不是零告警了。**
   #19 merge 後的第一次分析從 0 筆跳到 **31 筆**（`py/path-injection` 25、
   `py/polynomial-redos` 4、`py/full-ssrf` 2），之後一直停在 31——PR 上的 CodeQL check
-  照樣是綠的，所以一天半沒有人發現。逐筆看過的部分：
+  照樣是綠的，所以一天半沒有人發現。31 筆的分流結果：
   * 4 筆 ReDoS 在本機用最壞輸入實測：**1 筆成立、已修**（`locate.py` 挖『』的 regex，
     平方時間）；**3 筆是線性的、標為 false positive**——保護來自 `re.M` 與
     `splitlines()`，同一個 regex 拿掉這層就是平方，重構時要保住。
-  * 其餘 27 筆的汙染源是 workflow 寫死的 argv 與環境變數（`04` 側 13 筆已逐行確認），
-    正是 local threat model 預告過的代價；**尚未逐筆處理**。
+  * 其餘 27 筆（path-injection 25、full-ssrf 2）逐筆對過 SARIF 的資料流，**source 全是
+    argv 或環境變數**，而且每個執行情境裡設值的，都是本來就有同等權限的一方：`04` 的
+    路徑參數是 workflow 寫死的字面值（`--rubric` 是 caller 的 `rubric-path`），
+    `GITHUB_STEP_SUMMARY` 由 runner 設，`DEEPSEEK_BASE_URL` 在 `04` 沒設、走寫死的預設值；
+    `tools/` 的 14 筆則是本機操作者，或 `workflow_dispatch`（要 write 權限）給的值。
+    不受信任的資料——artifact 裡的 diff／`meta.json`、模型輸出——只被當成內容讀，
+    沒有一處拿來組路徑或 URL。**全部以 won't fix dismiss**，理由寫在各筆 alert 上。
+    dismiss 而不是留著，是為了讓 open alert 回到 0：留著 27 筆，第 28 筆真的來了也不會有人看到。
+    ⚠️ 這個判定的前提是「路徑不從不受信任的資料來」——改成從 artifact、模型輸出或
+    資料集取路徑時，要重新評估。
   同時驗掉一個**不會報錯的失敗模式**：這套 kit 原本放在 `code-review-kit/` 子目錄下，
   五個 workflow 的實際觸發次數是**零**——GitHub Actions 只掃 `<repo-root>/.github/workflows/`，
   放錯位置既不觸發也不警告。詳見 §2 步驟 1 的警告。
