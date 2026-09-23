@@ -324,7 +324,7 @@ gh workflow run eval-filter.yml \
 要不要承擔這件事，取決於你信不信任我們不亂動那個 tag。我們的承諾（`v1` 內不移除 input、
 破壞性變更進 v2）寫在 README §5 最後一節，連同我們自己破過一次的紀錄。
 
-不想承擔就釘死：`@v1.3.0` 這種不可變 tag，或直接用 commit SHA（GitHub 官方對第三方
+不想承擔就釘死：`@v1.3.1` 這種不可變 tag，或直接用 commit SHA（GitHub 官方對第三方
 workflow 的建議做法）。功能完全一樣，代價是修正不會自動到你手上。
 
 ## 這套不會幫你做的事

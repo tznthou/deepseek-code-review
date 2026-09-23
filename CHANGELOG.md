@@ -11,6 +11,8 @@
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-23
+
 ### Security
 
 - `locate.py` 從 evidence／body 挖『』引號內容的 regex（`『(.+?)』`，`re.S`）遇到沒有收尾的
@@ -48,6 +50,7 @@
   三筆的失效模式各不相同（假設的輸入情境不存在、報「已經做了的事」、
   技術斷言與當天的實測直接矛盾）。已註明這批數字不推翻也不強化既有結論——
   標的以文件與測試為主、`n=4` 太小，放進來是因為失效模式比成立率有資訊量。
+- `USAGE.md` 釘版本的範例更新到 `@v1.3.1`。
 
 ## [1.3.0] - 2026-09-22
 
@@ -265,7 +268,8 @@
   方式導入，不必複製腳本也不必複製 rubric。
 - `USAGE.md`：三步驟導入說明與可直接複製的 caller 範本。
 
-[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.0...v1.2.1
