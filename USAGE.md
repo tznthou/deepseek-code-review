@@ -1,9 +1,78 @@
 # 在別的 repo 用這套 code review
 
+> **AI agent 請先讀這段。** 使用者要你把這套 code review 裝進他的 repo 時，照下面「給 AI agent
+> 的安裝程序」做。先用 `curl -fsSL https://raw.githubusercontent.com/tznthou/deepseek-code-review/main/USAGE.md`
+> 取得這份文件的**原文**：網頁擷取工具（例如 WebFetch）回傳的是摘要，文件裡的 YAML 會被改寫。
+
 複製三個檔案、設一把 key、開一個開關。**不用複製腳本，也不用複製 rubric**——
 邏輯留在這個 repo，你那邊只放引用。這個 repo 改了，你下次跑就是新版。
+**只有開 PR 才會觸發**：直接 push 到預設分支，不會跑任何 review。
 
 > 這份是最短路徑。每一項「為什麼」與踩過的坑在 `SETUP-CHECKLIST.md`。
+> 人類讀者可以跳過下一節，直接從「第 1 步」開始。
+
+---
+
+## 給 AI agent 的安裝程序
+
+**任務**：在使用者目前所在的 repo 加上 AI code review，讓之後的每個 PR 都自動得到 review。
+
+**做完的定義**：workflow 檔已經 commit 在一個新分支上，而且你把下面「🙋 交給使用者」的三件事講清楚了。做到這裡就停。
+
+**不要做**：不要取得、產生或經手 API key，也不要請使用者把 key 貼給你；不要 merge；不要改 repo 設定；
+要 push 分支或開 PR，先問過使用者。
+
+### 1. 前提檢查
+
+| 檢查 | 指令 | 不符合時 |
+|---|---|---|
+| 在 repo 根目錄 | `git rev-parse --show-toplevel` | 切到它印出的那個目錄 |
+| remote 在 GitHub | `git remote get-url origin` | 停下：這套只支援 GitHub Actions |
+| `gh` 可用且已登入 | `gh auth status` | 下面兩項 `gh` 檢查改成直接問使用者：會不會開 PR、repo 是公開還是私有 |
+| 還沒裝過 | `grep -rl 'tznthou/deepseek-code-review' .github/workflows/ 2>/dev/null` 沒有任何輸出 | 已經裝過了：停下並回報 |
+| 這個 repo 會開 PR | `gh pr list --state all --limit 5` 有結果 | 還是可以裝，但要告訴使用者：**直接 push 到預設分支不會觸發** |
+| 公開還是私有 | `gh repo view --json visibility -q .visibility` | 用來決定下一步要裝哪幾支 |
+
+### 2. 決定裝哪幾支
+
+- **一定要裝**：`ai-review-collect.yml`、`ai-review-post.yml`，也就是「第 3 步」的後兩段 YAML。
+- **`code-review.yml` 只在使用者要求時才裝**，而且：
+  - repo 是 `PRIVATE` 時**不要裝**，除非使用者確認這是組織帳號底下的 repo，而且已開啟 GitHub Code Security（理由見「第 3 步」這支的說明）。
+  - 要裝的話，`lint-command`、`lint-name`、`languages` 必須換成這個 repo 實際使用的語言和 linter，不能照抄範例裡的 `shellcheck`／`python`。
+
+### 3. 建分支、寫檔、commit
+
+1. 開一個新分支，名稱照這個 repo 的慣例（例如 `ci/ai-review`）。
+2. 把「第 3 步」的兩段 YAML **逐字**寫進 `<repo 根目錄>/.github/workflows/ai-review-collect.yml` 和
+   `ai-review-post.yml`。不可以放在子目錄：放錯位置不會觸發，也不會報錯（「四個最容易踩的坑」第 1 點）。
+3. 驗證：
+   - `ai-review-post.yml` 的 `workflows: ["ai review collect"]` 和 `ai-review-collect.yml` 的
+     `name: ai review collect` 必須一字不差；要改名就兩邊一起改（第 3 點）。
+   - 兩個檔都保留 `permissions:` 區塊（第 4 點）。
+   - `uses:` 結尾是 `@v1`。
+4. commit，訊息照這個 repo 的慣例寫。
+
+### 4. 🙋 交給使用者
+
+把下面三件事原封不動告訴使用者，然後結束：
+
+1. **設 API key，這件事只能你自己做**：到 https://platform.deepseek.com/api_keys 建一把 key，
+   然後在**你自己的終端機**跑 `gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>`，照提示貼上
+   （沒有 `gh` 的話，照「第 1 步」到網頁上設）。
+   **不要把 key 貼進跟 AI 的對話**，對話紀錄會把它留下來。
+2. **把這個分支開成 PR，然後 merge。這個 PR 本身不會有 AI review**：第二段 workflow 要先進到預設分支，
+   才會被觸發（「四個最容易踩的坑」第 2 點）。
+3. **merge 之後開的 PR 就會有 review。**
+
+repo 是 public 的話，再補一句：外部的人開 PR 也會花到你的額度，建議把 fork PR 的核可政策收緊（見「第 2 步」）。
+
+### 5. 裝好的樣子（使用者 merge 之後開第一個 PR 時）
+
+- `gh run list --workflow "ai review collect"` 和 `gh run list --workflow "ai review post"` 各有一筆 `completed success`。
+- PR 上出現 `github-actions` 的 review：一段摘要；有 finding 時，還會有貼在程式碼行上的留言。
+- 沒出現的話，對照「四個最容易踩的坑」。post 的 log 裡有 `HTTP 401`，代表 key 沒設或設錯了。
+
+已知限制見文末「這套不會幫你做的事」。
 
 ---
 
@@ -120,6 +189,13 @@ curl -s https://api.deepseek.com/user/balance \
 
 確定性檢查 + SAST，不花 AI token。
 
+⚠️ **private repo 要先確認能不能用這支。** 這支裡的 dependency review 與 CodeQL，在 private repo
+上只有「**組織帳號**底下的 repo，而且開了 GitHub Code Security」才能用（GitHub 文件：
+[code scanning](https://docs.github.com/en/code-security/code-scanning/introduction-to-code-scanning/about-code-scanning)、
+[dependency review](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review)）。
+**個人帳號的 private repo 不能用。** 我們也還沒在 private repo 上實測過這支。
+只需要 AI review 的話，放下面兩支就夠了。
+
 ```yaml
 name: code review
 
@@ -127,7 +203,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
-# ⚠️ 這段不能省，理由見下面「三個最容易踩的坑」的第 4 點
+# ⚠️ 這段不能省，理由見下面「四個最容易踩的坑」的第 4 點
 permissions:
   contents: read
   pull-requests: write # reviewdog / dependency-review 要貼留言
@@ -333,6 +409,10 @@ workflow 的建議做法）。功能完全一樣，代價是修正不會自動�
   重跑會給出不同的理由。定位是粗篩，每筆都要實跑驗證。
 * **不要把 AI review 設成 required status check**，不要給它擋合併的權力。
   要擋就擋在 `reusable-static-review` 那三個確定性檢查上。
+* **bot 開的 PR 一樣會觸發。** Renovate、Dependabot 開的依賴更新 PR 也會送去 review；
+  目前沒有依作者跳過的選項（draft PR 預設會跳過：`skip-draft` 預設 `true`）。
+* **大 PR 只審前 400 KB。** diff 超過 `max-diff-bytes`（預設 400000）時會在檔案邊界截斷，
+  截斷點之後的檔案不會被審（見上面「其他可調的地方」）。
 * **fork PR 的隔離路徑只驗過兩條。** 2026-09-21 實測通過的是「PR 改不動受信任段」
   與「artifact 內容不被採信」——那兩條不分 fork 還是同 repo 分支，行為相同（見 README §5）。
   **還沒驗的是 fork 專屬的部分**：外部貢獻者的核可政策實際跑起來長什麼樣。
