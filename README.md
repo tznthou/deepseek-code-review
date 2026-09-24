@@ -4,7 +4,7 @@
 而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
-[![selftest](https://img.shields.io/badge/selftest-93%20passing-brightgreen?style=flat-square)](tools/selftest.py)
+[![selftest](https://img.shields.io/badge/selftest-96%20passing-brightgreen?style=flat-square)](tools/selftest.py)
 [![license](https://img.shields.io/github/license/tznthou/deepseek-code-review?style=flat-square)](LICENSE)
 
 導入只要三步驟、三個檔案，不必複製腳本也不必複製 rubric——
@@ -75,7 +75,7 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   │   └── python.md                       #
 │   └── dsh-review-task.md                  # 05 用的 agent 任務指令
 ├── tools/
-│   ├── selftest.py                         # 不需網路/API key 的自測（16 組 93 項）
+│   ├── selftest.py                         # 不需網路/API key 的自測（17 組 96 項）
 │   ├── check-dsh-version.py                # 檢查內建 DSH 版本 vs npm 最新版
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
@@ -409,6 +409,23 @@ pro 報得**少**但精度高、雜訊少，反而更適合 CI。價差 4 倍，
 ⚠️ 反過來說，`prompts/rules/` 裡那兩份分型別規則之所以敢用，是因為它們寫的是
 **給資訊**（「`.pyi` 檔案的未使用 import 是預期的」「`workflow_run` 跑的是
 default branch 的版本」），不是要求模型管住自己。
+
+> **2026-09-24 在 confidence 上又量到同一個方向。** 問的是：模型自報的信心值，能不能分出
+> 成立和不成立的 finding？
+>
+> 用三個合成標的量，其中一個是專門誘發「報已經做了的事」的探針。每一輪跑 15 次，
+> 每一筆都在看不到信心值的情況下標對錯。
+>
+> | rubric 裡的寫法 | AUC |
+> |---|---|
+> | 原版：「低於 0.6 直接省略，不要用『可能』『或許』模糊帶過」 | 0.825（30 次跑） |
+> | 要求它**照規則自評**：依「實際確認過什麼」把信心分成三級 | 0.773（15 次跑，變差） |
+> | **給它資訊**：這個數字決定貼成行內留言還是只進摘要表，不確定就給低分 | **0.876**（30 次跑） |
+>
+> 定錨表會變差，是因為中間那一級變成安全區，成立的和不成立的都擠進去。
+> 現行 rubric 用的是第三種寫法。
+>
+> ⚠️ 勝幅剛好壓在事先定的門檻上。標的全是合成的，真實 PR 上的效果還在量（見 CHANGELOG）。
 
 ### 4.8 註解密度越高的專案，誤報率越高
 
@@ -750,7 +767,7 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
   當時的 agent session 拿不到 API key，後來補跑了。實測數據見 §4。
 * **`post_review.py` 的行號驗證與過濾**已用真實 findings 走過 `--dry-run`：
   5 筆 findings 經門檻與 hunk 檢查後剩 1 筆可貼 inline，其餘正確降級進摘要。
-* `python3 tools/selftest.py` **16 組 93 項斷言全通過**。
+* `python3 tools/selftest.py` **17 組 96 項斷言全通過**。
 * **送出前的禁用詞掃描，在真實 GitHub Actions 上跑過兩件事**（2026-09-22，
   用長期保留的整合測試 repo）：
   * **攔截生效**：diff 裡放一個會命中的標記，`DeepSeek review` step 印出
