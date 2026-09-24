@@ -11,10 +11,22 @@
 
 ## [Unreleased]
 
+### Docs
+
+- 釘版本的說明補上 `kit-ref`。`reusable-ai-review-post.yml` 與 `reusable-codeql.yml` 會用 `kit-ref`
+  （預設 `v1`）另外 checkout kit 的腳本、內建 rubric 與 CodeQL 設定，所以只把 `uses:` 改成
+  `@vX.Y.Z` 或 SHA，同一個 run 會兩層跑不同版本——README §8 早就記過這個實例，但給使用者看的
+  釘版本說明一直只講改 `uses:`。
+  - 補上的地方：`USAGE.md` 釘版本那一段（附範例）與兩張參數表（原本都沒列 `kit-ref`）、
+    README §5「上游可以隨時換掉你跑的 code」、1.4.0 的升級說明（本檔、Release、tag 訊息）。
+
 ## [1.4.0] - 2026-09-24
 
 > **minor**：內建 rubric 的行為變更（見下面的 Changed），介面沒動，caller 不用改任何東西。
-> 引用 `@v1` 的 repo 會自動拿到新版；想先觀察再升級，就把 `@v1` 換成 `@v1.3.1` 釘住。
+> 引用 `@v1` 的 repo 會自動拿到新版。想先觀察再升級，要**兩處一起**釘在 `v1.3.1`：
+> `uses:` 改成 `@v1.3.1`，而且 `reusable-ai-review-post.yml`（以及 `reusable-codeql.yml`）
+> 要傳 `kit-ref: v1.3.1`。只改 `uses:` 的話，rubric 會照樣從 `kit-ref` 的預設值 `v1`
+> checkout，拿到的還是新版。（這段發版時只寫了改 `uses:`，2026-09-24 更正，見 `[Unreleased]`。）
 
 ### Changed
 
