@@ -32,6 +32,7 @@
 | 還沒裝過 | `grep -rl 'tznthou/deepseek-code-review' .github/workflows/ 2>/dev/null` 沒有任何輸出 | 已經裝過了：停下並回報 |
 | 這個 repo 會開 PR | `gh pr list --state all --limit 5` 有結果 | 還是可以裝，但要告訴使用者：**直接 push 到預設分支不會觸發** |
 | 公開還是私有 | `gh repo view --json visibility -q .visibility` | 用來決定下一步要裝哪幾支 |
+| Actions 政策沒有擋 | `gh api 'repos/{owner}/{repo}/actions/permissions'` | 正常是 `"enabled":true`、`"allowed_actions":"all"`、`"sha_pinning_required":false`。任一項不同就停下，把「第 2 步」最後一節「Actions 政策」轉告使用者，不要自己改設定。指令失敗（沒有 admin 權限就查不到）時直接問使用者 |
 
 ### 2. 決定裝哪幾支
 
@@ -71,6 +72,8 @@ repo 是 public 的話，再補一句：外部的人開 PR 也會花到你的額
 - `gh run list --workflow "ai review collect"` 和 `gh run list --workflow "ai review post"` 各有一筆 `completed success`。
 - PR 上出現 `github-actions` 的 review：一段摘要；有 finding 時，還會有貼在程式碼行上的留言。
 - 沒出現的話，對照「四個最容易踩的坑」。post 的 log 裡有 `HTTP 401`，代表 key 沒設或設錯了。
+- run 的狀態是 `startup_failure` 時，`gh run view` 只會說 "workflow file issue"，`--log-failed` 也是空的。
+  原因只有網頁上那個 run 頁面的 **Annotations** 看得到。
 
 已知限制見文末「這套不會幫你做的事」。
 
@@ -183,6 +186,53 @@ curl -s https://api.deepseek.com/user/balance \
 
 單次 review 實測約 $0.01，所以就算被灌爆，燒掉的上限也就是你當下的餘額。
 
+### Actions 政策：確認沒有擋掉這套用到的 action
+
+預設是全部允許，大部分人不用動。先查一次：
+
+```bash
+gh api repos/<owner>/<repo>/actions/permissions
+# 沒問題的樣子：{"enabled":true,"allowed_actions":"all","sha_pinning_required":false}
+```
+
+網頁上的位置是 Settings → Actions → General → Actions permissions。組織底下的 repo，組織層級可能還有限制，
+這種情況我們沒有組織帳號可以實測。
+
+| 查到的值 | 會發生什麼 | 處理 |
+|---|---|---|
+| `"enabled":false` | Actions 整個關閉，什麼都不會跑 | 在同一頁打開 |
+| `"allowed_actions":"local_only"`（只允許自己帳號或組織的 action） | 每一支都 `startup_failure`，**連只要讀權限的 collect 也是**；post 根本不會被觸發 | 改成 `selected`，照下面的清單開 |
+| `"allowed_actions":"selected"` | 清單少了哪一個就會被擋。少的如果是 action 內部再引用的（例如下面的 `setup-trivy`），只有那個 job 失敗，其他照跑 | 照下面的清單補 |
+| `"sha_pinning_required":true`（強制釘 SHA） | collect 和 code-review 的 job 都在 Set up 階段失敗，post 因此跳過（skipped） | **目前沒辦法**，見本節最後 |
+
+`selected` 要允許的東西（2026-09-24 在測試 repo 實測）：
+
+- **只裝 AI review 兩支**：勾選 **Allow actions created by GitHub**，再把這套本身加進清單：
+  `tznthou/deepseek-code-review/.github/workflows/*@*`
+- **也裝了 `code-review.yml`**：再加 `reviewdog/action-setup@*`、`gitleaks/gitleaks-action@*`、
+  `aquasecurity/trivy-action@*`、`aquasecurity/setup-trivy@*`。最後這條是 `trivy-action` 內部引用的，
+  照 workflow 裡的 `uses:` 抄一定會漏；漏了的話只有 Trivy 那個 job 失敗
+
+⚠️ 「把這套本身加進清單」那條**沒有實測過**：我們的測試 repo 跟這套在同一個帳號底下，永遠算「自己的」。
+寫法是照 GitHub 文件的語法 `OWNER/REPOSITORY/PATH/FILENAME@TAG-OR-SHA`（可以用 `*`）。
+
+`local_only` 擋下來的時候，`gh run view` 只會說 "workflow file issue"，跟「四個最容易踩的坑」
+第 4 點一模一樣。真正的原因寫在網頁上那個 run 頁面的 Annotations：
+
+```
+The actions actions/checkout@v7 and actions/upload-artifact@v7 are not allowed in <owner>/<repo> because all actions must be from a repository owned by <owner>.
+```
+
+**強制釘 SHA 的 repo，目前不能用這套。** reusable workflow 可以用 tag 引用，所以你的 `@v1`
+不會被擋；但這個政策會一路檢查到這套**內部**用到的 action，而那些都是用 tag 引用的（例如
+`actions/checkout@v7`）。所以就算你把 `@v1` 換成 commit SHA，還是一樣會失敗：
+
+```
+The actions actions/checkout@v7 and actions/upload-artifact@v7 are not allowed in <owner>/<repo> because all actions must be pinned to a full-length commit SHA.
+```
+
+走複製路線（README §2）的話，可以自己把 action 釘成 SHA，但這條我們沒有實測。
+
 ## 第 3 步：放三個檔案
 
 ### `.github/workflows/code-review.yml`
@@ -291,13 +341,20 @@ jobs:
 （新 repo 通常是 read-only），而 reusable 裡的 job 要求 `pull-requests: write`、
 `security-events: write`，**超出上限就在啟動階段直接失敗，連一個 job 都不會出現**。
 
-這個失敗特別難查：`gh run view` 只說「This run likely failed because of a workflow
+這個失敗從 CLI 查不出來：`gh run view` 只說「This run likely failed because of a workflow
 file issue」，`--log-failed` 是空的，`actionlint` 也驗不出來——因為 workflow 檔案
-本身沒有任何語法問題。2026-09-20 實測，上面三份範本的 `permissions:` 區塊都是照這個
-踩出來的，照抄就不會遇到。
+本身沒有任何語法問題。**原因寫在網頁上那個 run 頁面的 Annotations**，例如：
+
+```
+The nested job 'review' is requesting 'actions: read, pull-requests: write', but is only allowed 'actions: none, pull-requests: none'.
+```
+
+2026-09-20 實測，上面三份範本的 `permissions:` 區塊都是照這個踩出來的，照抄就不會遇到。
 
 > 對照組：只要 `contents: read` 的 `ai review collect` 在沒宣告 permissions 時
 > 照樣跑得動——**所以你可能會看到一部分 workflow 正常、一部分整個不啟動**。
+> 如果是**全部**不啟動、連 collect 也是，先查「第 2 步」最後一節的 Actions 政策：
+> CLI 上的訊息一模一樣，只有 Annotations 分得出來。
 
 ---
 

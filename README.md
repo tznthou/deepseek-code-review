@@ -730,6 +730,8 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 | log 出現 `重新定位 A → B` | 正常。行號由程式用程式碼片段比對算出，模型報的當備援——實測它報的行號 16 筆只有 1 筆真的指對。見 §8 |
 | **改了 kit 自己的 code，PR 跑完全綠卻看不到效果** | 本 repo 的 `03`／`04` 引用 `@v1`，`.kit` checkout 的是**已發布版本**，PR 裡的改動一行都不會執行。而且 `04` 由 `workflow_run` 觸發、跑的是 default branch 的 workflow，所以連「在 branch 上改 `kit-ref`」都無效。要驗只能走發布流程：合併 → 打 tag → 移動 `v1` → 下一個 PR |
 | **caller 新傳一個 secret，merge 進 default branch 之後 `04` 變成 `startup_failure`** | 你的 caller 引用 `@v1`，而那個 secret 是**還沒發版**的 reusable 才認識的。PR 上驗不到——`04` 由 `workflow_run` 觸發、跑的是 **default branch** 的 caller，merge 前那還是舊的。所以它只在「merge 後、發版前」這段窗口炸。**2026-09-22 本 repo 自己踩過**：`v1.3.0` 發版前的兩分鐘內，main 上的 `04` 是壞的。順序要反過來：**先發版，再讓 caller 傳新 secret**；或把 caller 的 `kit-ref` 釘到含該 secret 的版本 |
+| **run 是 `startup_failure`，`gh run view` 只說 "workflow file issue"** | CLI 看不到原因，`--log-failed` 也是空的。**到網頁上那個 run 頁面看 Annotations**。實際遇過的有三種：caller 漏了 `permissions:`（USAGE「四個最容易踩的坑」第 4 點）、caller 傳了 reusable 不認識的 input 或 secret（上一列）、repo 的 Actions 政策只允許自己帳號的 action（USAGE「第 2 步」最後一節，2026-09-24 實測）。是哪一種以 Annotations 為準；權限不足跟政策這兩種可以先用一個對照分：權限不足時只要讀權限的 collect 照樣跑得起來，政策擋下的連 collect 也起不來 |
+| **job 在 Set up 就失敗，log 寫著 `… must be pinned to a full-length commit SHA`** | repo 或組織開了「強制 action 釘 SHA」。這套內部的 action 是用 tag 引用的，caller 把 `@v1` 換成 SHA 也沒用，**引用路線目前不支援這個政策**（2026-09-24 實測）。見 USAGE「第 2 步」最後一節 |
 | 05 卡在 approval / 工具被拒 | headless 無互動審批通道，屬預期行為。檢查是否誤讓 agent 需要寫入權限 |
 | 05 抓不到 `@deepseek-ai/dsh` | 確認 Node 版本為 `^22.19.0 \|\| >=24.0.0`；首次下載數百 MB，確認 cache 生效 |
 | `dsh` 說 sandbox 不可用（`SANDBOX_UNAVAILABLE`） | 容器內缺少 bwrap/Landlock 等後端。唯讀工具通常不受影響；若需要寫入請改用 04 路線 |
