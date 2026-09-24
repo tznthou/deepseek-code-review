@@ -400,11 +400,13 @@ The nested job 'review' is requesting 'actions: read, pull-requests: write', but
 | `languages` | **必填** | JSON 陣列字串 |
 | `build-mode` | `none` | 編譯式語言改 `autobuild` |
 | `skip-trivy` | `false` | |
+| `kit-ref` | `v1` | kit 內建的 `codeql-config.yml` 從哪個版本取。釘版本時要跟 `uses:` 的 `@` 設成同一個值 |
 
 `reusable-ai-review-post.yml`
 
 | input | 預設 | 說明 |
 |---|---|---|
+| `kit-ref` | `v1` | 腳本、內建 rubric 與補充規則從哪個版本 checkout。釘版本時要跟 `uses:` 的 `@` 設成同一個值 |
 | `rubric-path` | `''` | 你自己的 rubric，留空用內建 |
 | `model` | `deepseek-v4-pro` | 只有這個與 `deepseek-flash` 是合法值 |
 | `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline。內建 rubric 會直接告訴模型「0.7 以上貼成行內留言」，改了這個值，rubric 那句不會跟著變 |
@@ -457,8 +459,20 @@ gh workflow run eval-filter.yml \
 要不要承擔這件事，取決於你信不信任我們不亂動那個 tag。我們的承諾（`v1` 內不移除 input、
 破壞性變更進 v2）寫在 README §5 最後一節，連同我們自己破過一次的紀錄。
 
-不想承擔就釘死：`@v1.4.0` 這種不可變 tag，或直接用 commit SHA（GitHub 官方對第三方
-workflow 的建議做法）。功能完全一樣，代價是修正不會自動到你手上。
+不想承擔就釘死：`uses:` 用 `@v1.4.0` 這種不可變 tag，或直接用 commit SHA（GitHub 官方對第三方
+workflow 的建議做法）。⚠️ **`reusable-ai-review-post.yml` 與 `reusable-codeql.yml` 還要把 `kit-ref`
+設成同一個值**：這兩支會在執行時另外 checkout kit（腳本、內建 rubric、CodeQL 設定），而 `kit-ref`
+預設是 `v1`。只改 `uses:` 的話，workflow 停在你釘的版本，腳本和 rubric 卻照樣跟著 `v1` 走，
+同一個 run 裡兩層跑不同版本（README §8 記過這個實例）。
+
+```yaml
+  post:
+    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1.4.0
+    with:
+      kit-ref: v1.4.0   # 跟上面的 @ 一起改
+```
+
+兩處都釘了，跑的才完全是那一版；代價是修正不會自動到你手上。
 
 ## 這套不會幫你做的事
 

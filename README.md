@@ -681,6 +681,11 @@ DeepSeek 的隱私政策明寫會用使用者輸入來訓練模型。對 public 
 所以你實際上是在信任「我們不會亂動它」。GitHub 官方對第三方 workflow 的安全建議是
 **釘 full commit SHA**，理由正是 tag 可以被移動。
 
+⚠️ 釘這套要**兩處一起釘**：`uses:` 的 `@` 後面，以及 `reusable-ai-review-post.yml`、
+`reusable-codeql.yml` 的 `kit-ref` input。這兩支會在執行時另外 checkout kit 的腳本、
+內建 rubric 與 CodeQL 設定，而 `kit-ref` 預設是 `v1`——只釘 `uses:` 的話，實際跑的
+腳本與送出去的 prompt 仍然跟著 `v1` 移動（§8 記過同一個 run 兩層跑不同版本的實例）。
+
 我們的承諾，寫在這裡才算數：
 
 * **`v1` 這條線內不移除 `inputs`、不改變既有參數的行為。** 要停用一個功能，
