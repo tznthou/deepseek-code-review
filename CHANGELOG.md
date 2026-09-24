@@ -33,6 +33,16 @@
   `github-pr-cicd-code-review-research.md` 頭部的配套實作說明（同一句的腳本數也還是
   當時的 2 支）。改成現況：10 個 workflow、`.github/scripts/` 下 3 支腳本；§9 那條的
   驗證方式也從「可被解析」改成本機實際在跑的 `actionlint`。
+- `USAGE.md` 開頭加上「給 AI agent 的安裝程序」：使用者可以把這份文件交給自己 repo 裡的
+  coding agent，讓它照著裝。內容包括前提檢查、要裝哪幾支、每一步怎麼驗證、哪幾步要停下來
+  交給人（API key 不經過 agent，也不貼進對話），以及裝好之後的樣子。踩坑的部分直接引用原本的
+  「四個最容易踩的坑」，不另寫一份。開頭要求 agent 用 `curl` 讀原文，因為 WebFetch 這類
+  工具回傳的是摘要，YAML 會被改寫。
+- `USAGE.md` 補上三件原本沒寫的事：只有開 PR 才會觸發；private repo 先不要放
+  `code-review.yml`（dependency review 與 CodeQL 需要 Code Security 授權）；bot 開的 PR
+  一樣會觸發，大 PR 也只審前 400 KB。
+- `USAGE.md` 的 `code-review.yml` 範例註解寫的是「三個最容易踩的坑」的第 4 點，但那一節從
+  USAGE 第一版（`d3dcaec`）開始就是四個。
 
 ## [1.3.1] - 2026-09-23
 
