@@ -37,7 +37,7 @@
 
 - **一定要裝**：`ai-review-collect.yml`、`ai-review-post.yml`，也就是「第 3 步」的後兩段 YAML。
 - **`code-review.yml` 只在使用者要求時才裝**，而且：
-  - repo 是 `PRIVATE` 時**不要裝**，理由寫在「第 3 步」這支的說明裡。
+  - repo 是 `PRIVATE` 時**不要裝**，除非使用者確認這是組織帳號底下的 repo，而且已開啟 GitHub Code Security（理由見「第 3 步」這支的說明）。
   - 要裝的話，`lint-command`、`lint-name`、`languages` 必須換成這個 repo 實際使用的語言和 linter，不能照抄範例裡的 `shellcheck`／`python`。
 
 ### 3. 建分支、寫檔、commit
@@ -189,9 +189,12 @@ curl -s https://api.deepseek.com/user/balance \
 
 確定性檢查 + SAST，不花 AI token。
 
-⚠️ **private repo 先不要放這支。** 裡面的 dependency review 與 CodeQL 在 private repo 需要
-GitHub Code Security 授權（GitHub 官方文件與 `dependency-review-action` 的 README 都這樣寫）；
-這支在 private repo 上我們沒有實測過。只要 AI review 的話，放下面兩支就夠了。
+⚠️ **private repo 要先確認能不能用這支。** 這支裡的 dependency review 與 CodeQL，在 private repo
+上只有「**組織帳號**底下的 repo，而且開了 GitHub Code Security」才能用（GitHub 文件：
+[code scanning](https://docs.github.com/en/code-security/code-scanning/introduction-to-code-scanning/about-code-scanning)、
+[dependency review](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review)）。
+**個人帳號的 private repo 不能用。** 我們也還沒在 private repo 上實測過這支。
+只需要 AI review 的話，放下面兩支就夠了。
 
 ```yaml
 name: code review

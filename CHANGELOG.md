@@ -38,9 +38,11 @@
   交給人（API key 不經過 agent，也不貼進對話），以及裝好之後的樣子。踩坑的部分直接引用原本的
   「四個最容易踩的坑」，不另寫一份。開頭要求 agent 用 `curl` 讀原文，因為 WebFetch 這類
   工具回傳的是摘要，YAML 會被改寫。
-- `USAGE.md` 補上三件原本沒寫的事：只有開 PR 才會觸發；private repo 先不要放
-  `code-review.yml`（dependency review 與 CodeQL 需要 Code Security 授權）；bot 開的 PR
-  一樣會觸發，大 PR 也只審前 400 KB。
+- `USAGE.md` 補上三件原本沒寫的事：
+  - 只有開 PR 才會觸發。
+  - `code-review.yml` 裡的 dependency review 與 CodeQL，在 private repo 上只有「組織帳號、
+    而且開了 GitHub Code Security」才能用，個人帳號的 private repo 不能用（附上 GitHub 文件連結）。
+  - bot 開的 PR 一樣會觸發，大 PR 也只審前 400 KB。
 - `USAGE.md` 的 `code-review.yml` 範例註解寫的是「三個最容易踩的坑」的第 4 點，但那一節從
   USAGE 第一版（`d3dcaec`）開始就是四個。
 
