@@ -519,6 +519,24 @@ def main() -> int:
         elapsed = time.perf_counter() - started
         check(f"64K 字元、{label}：0.5 秒內跑完", elapsed < 0.5, f"{elapsed:.2f}s")
 
+    print("[17] rubric 講給模型聽的門檻，必須等於 min-confidence 的預設值")
+    # 2026-09-24 rubric 改成直接告訴模型「0.7 以上貼成行內留言」：同一份合成標的各跑 30 次，
+    # 信心當排序訊號時 AUC 0.825 → 0.876。這個數字同時是 reusable workflow 與 post_review.py
+    # 的預設門檻——三處寫同一件事，改一處漏一處時 rubric 會安靜地講錯，模型照錯的門檻給分。
+    rubric_text = (ROOT / "prompts/review-rubric.md").read_text(encoding="utf-8")
+    stated = re.search(r"\*\*([0-9.]+) 以上貼成行內留言，低於 \1 只列在摘要表\*\*", rubric_text)
+    wf_text = (ROOT / ".github/workflows/reusable-ai-review-post.yml").read_text(encoding="utf-8")
+    wf_default = re.search(r"min-confidence:\n(?:[ \t]+[\w-]+:.*\n)*?[ \t]+default:[ \t]*([0-9.]+)", wf_text)
+    post_text = (ROOT / ".github/scripts/post_review.py").read_text(encoding="utf-8")
+    post_default = re.search(r'"--min-confidence", type=float, default=([0-9.]+)', post_text)
+    check("rubric 寫了門檻", stated is not None)
+    for where, found in (("reusable workflow", wf_default), ("post_review.py", post_default)):
+        check(
+            f"rubric 的門檻 = {where} 的預設值",
+            stated is not None and found is not None and float(stated.group(1)) == float(found.group(1)),
+            (stated and stated.group(1), found and found.group(1)),
+        )
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")

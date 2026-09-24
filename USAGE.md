@@ -407,7 +407,7 @@ The nested job 'review' is requesting 'actions: read, pull-requests: write', but
 |---|---|---|
 | `rubric-path` | `''` | 你自己的 rubric，留空用內建 |
 | `model` | `deepseek-v4-pro` | 只有這個與 `deepseek-flash` 是合法值 |
-| `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline |
+| `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline。內建 rubric 會直接告訴模型「0.7 以上貼成行內留言」，改了這個值，rubric 那句不會跟著變 |
 | `max-inline` | `8` | 其餘降級進摘要 |
 | `typed-rules` | `true` | 依 diff 涵蓋的檔案型態附加補充規則（目前有 GitHub workflow、Python 兩份）。**不增加 API 呼叫次數** |
 
