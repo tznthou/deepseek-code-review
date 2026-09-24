@@ -28,6 +28,7 @@
 |---|---|---|
 | 在 repo 根目錄 | `git rev-parse --show-toplevel` | 切到它印出的那個目錄 |
 | remote 在 GitHub | `git remote get-url origin` | 停下：這套只支援 GitHub Actions |
+| `gh` 可用且已登入 | `gh auth status` | 下面兩項 `gh` 檢查改成直接問使用者：會不會開 PR、repo 是公開還是私有 |
 | 還沒裝過 | `grep -rl 'tznthou/deepseek-code-review' .github/workflows/ 2>/dev/null` 沒有任何輸出 | 已經裝過了：停下並回報 |
 | 這個 repo 會開 PR | `gh pr list --state all --limit 5` 有結果 | 還是可以裝，但要告訴使用者：**直接 push 到預設分支不會觸發** |
 | 公開還是私有 | `gh repo view --json visibility -q .visibility` | 用來決定下一步要裝哪幾支 |
@@ -56,7 +57,8 @@
 把下面三件事原封不動告訴使用者，然後結束：
 
 1. **設 API key，這件事只能你自己做**：到 https://platform.deepseek.com/api_keys 建一把 key，
-   然後在**你自己的終端機**跑 `gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>`，照提示貼上。
+   然後在**你自己的終端機**跑 `gh secret set DEEPSEEK_API_KEY --repo <owner>/<repo>`，照提示貼上
+   （沒有 `gh` 的話，照「第 1 步」到網頁上設）。
    **不要把 key 貼進跟 AI 的對話**，對話紀錄會把它留下來。
 2. **把這個分支開成 PR，然後 merge。這個 PR 本身不會有 AI review**：第二段 workflow 要先進到預設分支，
    才會被觸發（「四個最容易踩的坑」第 2 點）。
