@@ -16,6 +16,28 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
+def input_default(workflow_text: str, name: str) -> str | None:
+    """在 reusable workflow 裡找某個 input 的 default，只看那個 input 自己的區塊。
+
+    用 regex 一路往下吃「key: value」行的寫法，遇到該 input 沒寫 default 時會越界抓到
+    下一個 input 的 default（2026-09-24 實測：抓到 max-inline 的 8）。這裡以縮排界定區塊，
+    區塊內的註解行照樣略過。只用標準函式庫，不引入 YAML 解析器。
+    """
+    lines = workflow_text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() != f"{name}:":
+            continue
+        indent = len(line) - len(line.lstrip())
+        for nxt in lines[i + 1 :]:
+            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
+                return None
+            m = re.match(r"[ \t]+default:[ \t]*([0-9.]+)[ \t]*$", nxt)
+            if m:
+                return m.group(1)
+        return None
+    return None
+
+
 def load(rel: str, name: str):
     spec = importlib.util.spec_from_file_location(name, ROOT / rel)
     module = importlib.util.module_from_spec(spec)
@@ -526,15 +548,16 @@ def main() -> int:
     rubric_text = (ROOT / "prompts/review-rubric.md").read_text(encoding="utf-8")
     stated = re.search(r"\*\*([0-9.]+) 以上貼成行內留言，低於 \1 只列在摘要表\*\*", rubric_text)
     wf_text = (ROOT / ".github/workflows/reusable-ai-review-post.yml").read_text(encoding="utf-8")
-    wf_default = re.search(r"min-confidence:\n(?:[ \t]+[\w-]+:.*\n)*?[ \t]+default:[ \t]*([0-9.]+)", wf_text)
+    wf_default = input_default(wf_text, "min-confidence")
     post_text = (ROOT / ".github/scripts/post_review.py").read_text(encoding="utf-8")
-    post_default = re.search(r'"--min-confidence", type=float, default=([0-9.]+)', post_text)
+    post_match = re.search(r'"--min-confidence", type=float, default=([0-9.]+)', post_text)
+    post_default = post_match.group(1) if post_match else None
     check("rubric 寫了門檻", stated is not None)
     for where, found in (("reusable workflow", wf_default), ("post_review.py", post_default)):
         check(
             f"rubric 的門檻 = {where} 的預設值",
-            stated is not None and found is not None and float(stated.group(1)) == float(found.group(1)),
-            (stated and stated.group(1), found and found.group(1)),
+            stated is not None and found is not None and float(stated.group(1)) == float(found),
+            (stated and stated.group(1), found),
         )
 
     print()
