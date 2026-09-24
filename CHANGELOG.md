@@ -45,6 +45,18 @@
   - bot 開的 PR 一樣會觸發，大 PR 也只審前 400 KB。
 - `USAGE.md` 的 `code-review.yml` 範例註解寫的是「三個最容易踩的坑」的第 4 點，但那一節從
   USAGE 第一版（`d3dcaec`）開始就是四個。
+- `USAGE.md` 的「第 2 步」補上 Actions 政策（Settings → Actions → General）：2026-09-24 在測試 repo
+  切換四組設定實測。這是 tautin 驗收時 AI 提出、之前一直沒測的坑。
+  - 「只允許自己帳號的 action」：kit 裡面用到的 `actions/checkout` 等會被擋，每一支都 `startup_failure`，
+    連 collect 也是，post 根本不會被觸發。
+  - `selected` 模式要允許的清單已列出。其中 `aquasecurity/setup-trivy` 是 `trivy-action` 內部引用的，
+    照 workflow 裡的 `uses:` 抄一定會漏；「把 kit 本身加進清單」那條我們測不到，文件裡寫明了。
+  - **強制 action 釘 SHA 的 repo 目前不能用引用路線**：kit 內部的 action 是用 tag 引用的，caller 把 `@v1`
+    換成 SHA 也沒用。
+  - AI agent 的安裝程序多了一項前提檢查（`gh api 'repos/{owner}/{repo}/actions/permissions'`）。
+- `USAGE.md`「四個最容易踩的坑」第 4 點原本說這種失敗「特別難查」，但網頁上那個 run 頁面的
+  Annotations 一直都寫著原因（回頭抓了三個歷史 run 都有）。已改成指向 Annotations，並補上怎麼跟
+  Actions 政策區分：CLI 上的訊息一模一樣。README §7 疑難排解同步加了兩列。
 
 ## [1.3.1] - 2026-09-23
 
