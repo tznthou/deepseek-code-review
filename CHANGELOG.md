@@ -11,6 +11,11 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-24
+
+> **minor**：內建 rubric 的行為變更（見下面的 Changed），介面沒動，caller 不用改任何東西。
+> 引用 `@v1` 的 repo 會自動拿到新版；想先觀察再升級，就把 `@v1` 換成 `@v1.3.1` 釘住。
+
 ### Changed
 
 - **`prompts/review-rubric.md`：confidence 從「過濾門檻」改成「排序訊號」**（行為變更）。
@@ -83,6 +88,7 @@
 - `USAGE.md`「四個最容易踩的坑」第 4 點原本說這種失敗「特別難查」，但網頁上那個 run 頁面的
   Annotations 一直都寫著原因（回頭抓了三個歷史 run 都有）。已改成指向 Annotations，並補上怎麼跟
   Actions 政策區分：CLI 上的訊息一模一樣。README §7 疑難排解同步加了兩列。
+- `USAGE.md` 釘版本的範例更新到 `@v1.4.0`。
 
 ## [1.3.1] - 2026-09-23
 
@@ -341,7 +347,8 @@
   方式導入，不必複製腳本也不必複製 rubric。
 - `USAGE.md`：三步驟導入說明與可直接複製的 caller 範本。
 
-[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.1...v1.2.2
