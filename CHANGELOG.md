@@ -21,6 +21,18 @@
     README §5「上游可以隨時換掉你跑的 code」、1.4.0 的升級說明（本檔與 Release）。
   - `v1.4.0` 的 tag 訊息同樣只寫了改 `uses:`，但不重打：tag 是不可變的（README §5 的承諾），
     以本檔為準。
+- `SETUP-CHECKLIST.md` 的「（可選）建立 environment `ai-review`」改成整項跳過。它叫人把 `04` 的
+  `# environment: ai-review` 取消註解，但那一行在 1.0.2 把 `04` 改成呼叫 reusable workflow 時就刪了，
+  而呼叫 reusable 的 job 不能設 `environment:`（actionlint 會報 `"environment" is not available`）。
+  `04` 開頭的註解一直寫著這件事，checklist 沒跟上。
+- `SETUP-CHECKLIST.md` 標位置的方式從行號改成那一行的內容。原本 6 處行號有 4 處指錯：`04:19`
+  兩處（實際在第 29 行）、`01-static-review.yml:48`（實際在第 50 行），以及上一條的 `04:31`
+  （那一行已經不存在）。這份文件的行號在 1.0.0 之前就修過一次，改標內容之後，workflow 加減幾行
+  也不會跑掉。
+- `tools/eval/build_eval_set.py` 的註解更正：只取 AACR-Bench 的 Diff Level，理由從「只有這 47.4%
+  在能力範圍內」改成「減少干擾變因」。`context` 欄位標的是寫那則 comment 需要多少上下文，不是只看
+  diff 的能力上限：論文 Table 4 裡，DeepSeek-V3.2 不給上下文時，File／Repo Level 的問題仍各找得到
+  三成多。
 
 ## [1.4.0] - 2026-09-24
 

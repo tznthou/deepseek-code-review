@@ -1,6 +1,7 @@
 # 導入 Checklist — deepseek-code-review
 
-> 把本 repo 根目錄的 kit 導入到你自己的 repo。每一項都標了「檔案:行號」與「不做會怎樣」。
+> 把本 repo 根目錄的 kit 導入到你自己的 repo。每一項都標了位置與「不做會怎樣」。
+> 檔案裡的位置用那一行的內容標示，請用搜尋找；不寫行號，因為 workflow 一改行號就跑掉。
 > 勾選方式：`- [ ]` → `- [x]`。
 
 ---
@@ -25,12 +26,12 @@
 
 - [ ] **確認 `03-ai-review-collect.yml` 已合併進 default branch**
   - 位置：`.github/workflows/03-ai-review-collect.yml`
-  - 為什麼：`workflow_run` **只認 default branch 上的 workflow 檔與名稱**（`04-ai-review-post.yml:19` 的 `workflows: ["03 ai review collect"]`）
+  - 為什麼：`workflow_run` **只認 default branch 上的 workflow 檔與名稱**（`04-ai-review-post.yml` 裡 `workflows: ['03 ai review collect']` 那一行）
   - 不做會怎樣：`04` **永遠不會被觸發**，你會以為 AI review 壞了 —— 這是最容易漏的一項
   - 驗證：合併後在 Actions 頁面確認 `04 ai review post` 曾出現過一次 run
 
 - [ ] **把 `01` 的 linter 換成你們的**
-  - 位置：`.github/workflows/01-static-review.yml:48`（`# TODO: 換成你的 linter`）
+  - 位置：`.github/workflows/01-static-review.yml` 裡 `# TODO: 換成你的 linter` 那一行
   - 現況：範例是 `shellcheck` 掃所有 `*.sh`
   - 不做會怎樣：若 repo 沒有 shell script，這步等於空跑（不會壞，但沒有價值）
   - 也可以改用官方包好的 action：`reviewdog/action-eslint@v1`、`action-hadolint@v1`、`action-rubocop@v1`
@@ -55,11 +56,11 @@
 
 ## 2. 依 repo 語言必改
 
-- [ ] **`02-codeql.yml:34`** — `language: [python]` 換成你們的語言（本 repo 自己用的是 `python`）
+- [ ] **`02-codeql.yml`** — `language: [python]` 換成你們的語言（本 repo 自己用的是 `python`）
   - 可用值：`javascript-typescript`、`python`、`go`、`java-kotlin`、`c-cpp`、`csharp`、`ruby`、`swift`…
   - 多語言就寫成 `[go, python]`（矩陣會平行跑）
 
-- [ ] **`02-codeql.yml:43`** — `build-mode: none` 的調整
+- [ ] **`02-codeql.yml`** — `build-mode: none` 的調整
   - 直譯式語言（JS/TS、Python、Ruby）：維持 `none`
   - 編譯式語言（Go/Java/C++/C#/Swift）：改成 `autobuild`，或改成手動 build 步驟
 
@@ -100,9 +101,11 @@
   - 位置：Settings → Actions → Fork pull request workflows
   - 決定來自 fork 的 PR 要不要人工核可才跑 workflow
 
-- [ ] **（可選）建立 environment `ai-review`**
-  - 只在你要「貼留言前人工核可」時需要：把 `04-ai-review-post.yml:31` 的 `# environment: ai-review` 取消註解
-  - 並在 Settings → Environments 設定 required reviewers
+- [x] ~~**（可選）建立 environment `ai-review`**~~ — **目前不支援，整項跳過**
+  - 這是舊版內嵌實作的選項：在 `04` 設 `environment: ai-review`，做「貼留言前人工核可」。
+    `04` 改成呼叫 reusable workflow 之後就設不了：呼叫 reusable 的 job 不能有 `environment:`
+    （actionlint 會報 `"environment" is not available`），`reusable-ai-review-post.yml` 也還沒有對應的 input
+  - 真的需要的話，出路寫在 `04-ai-review-post.yml` 開頭的註解
 
 ---
 
@@ -250,7 +253,7 @@
 | **模型回空字串、exit 2（「回應中找不到 JSON 物件」）** | thinking 沒關，reasoning 吃光 `max_tokens`（`finish_reason=length`） | 確認有 `--thinking disabled`；要保留 reasoning 就把 `--max-tokens` 拉到 65536 以上 |
 | 模型名稱回 HTTP 400 | 只有 `deepseek-flash` 與 `deepseek-v4-pro` 兩個有效名稱 | `deepseek-v4.1-flash` 不存在（`deepseek-flash` 本身就是 V4.1-Flash） |
 | review 淨是通用意見、抓不到真正在意的問題 | rubric 沒寫專案禁區 | 見 §4 的 rubric 客製那條，這是影響最大的一項 |
-| `04` 完全沒被觸發 | `03` 不在 default branch，或 workflow 名稱不符 | 確認 `04:19` 的 `workflows: ["03 ai review collect"]` 與 `03` 的 `name:` 完全一致 |
+| `04` 完全沒被觸發 | `03` 不在 default branch，或 workflow 名稱不符 | 確認 `04` 的 `workflows: ['03 ai review collect']` 與 `03` 的 `name:` 完全一致 |
 | `04` 執行但找不到 PR | commit 不屬於任何 PR（例如 direct push） | 這是預期行為，腳本會 `exit 0` |
 | inline comment 貼不上去（422） | 行號不在 diff hunk 內 | `post_review.py` 已做行號驗證並降級進摘要；確認有傳 `--diff` |
 | review 重複貼好幾次 | `04` 用 `gh pr review --comment`，每次 push 新增一則 | 想單一留言：改成 `gh pr comment --edit-last --create-if-none`（`05` 已這樣做） |

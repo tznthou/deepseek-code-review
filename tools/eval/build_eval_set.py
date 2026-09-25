@@ -12,10 +12,16 @@ comment 的對錯。它沒有附 diff，只給 PR 網址與 commit SHA，所以�
     File Level    744 (34.7%)   錯誤率 30.4%
     Repo Level    384 (17.9%)   錯誤率 39.3%
 
-本 kit 是單次 API 呼叫、只看得到 diff、沒有讀檔工具，所以只有 Diff Level 那
-47.4% 在能力範圍內。混進另外兩層會把結論洗歪——那些題目不是 filter 判斷失準，
-是它本來就看不到需要的東西。再加上 `is_ai_comment=True`（filter 要處理的正是
-AI 產的 comment），子集是 760 則。
+本 kit 是單次 API 呼叫、只看得到 diff、沒有讀檔工具。File Level 與 Repo Level
+的 comment 要判對錯，需要 diff 以外的資訊；混進來的話，「filter 判斷失準」和
+「缺資訊」會攪在一起分不開。所以只取 Diff Level，為的是減少干擾變因。
+
+這不是說另外兩層只看 diff 就做不到：`context` 標的是寫這則 comment 需要多少
+上下文，不是能力上限。AACR-Bench 論文（arXiv 2601.19494）Table 4 裡，
+DeepSeek-V3.2 在不給上下文的設定下，File Level 與 Repo Level 的問題仍各找得到
+三成多。
+
+再加上 `is_ai_comment=True`（filter 要處理的正是 AI 產的 comment），子集是 760 則。
 
 ## 兩個抓資料的坑
 
