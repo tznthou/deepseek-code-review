@@ -90,6 +90,8 @@ def run_block_input_refs(workflow_text: str) -> list[int]:
     return hits
 
 
+# 最後一個 step 是 `- run: |` 接同一個 step 的 env:。2026-09-26 PR #39 的 AI review 建議把 key_col
+# 改成只算前導空白（不含 `- `）：照改的話這個 env: 會被算進 run 區塊，而前面幾個 case 照樣全過。
 RUN_PROBE = """\
 jobs:
   a:
@@ -109,6 +111,10 @@ jobs:
           echo "$LATE"
         env:
           LATE: ${{ inputs.e }}
+      - run: |
+          echo '${{ inputs.f }}'
+        env:
+          DASH: ${{ inputs.g }}
 """
 
 
@@ -662,7 +668,7 @@ def main() -> int:
     )
     check("run: 裡沒有直接內插 input", not run_hits, run_hits)
     probe_hits = run_block_input_refs(RUN_PROBE)
-    check("探針：run: 裡的內插抓得到，env:／with: 的值不算", probe_hits == [9, 13], probe_hits)
+    check("探針：run: 裡的內插抓得到（含 `- run: |`），env:／with: 的值不算", probe_hits == [9, 13, 20], probe_hits)
 
     print()
     if failures:
