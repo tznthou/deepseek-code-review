@@ -62,6 +62,10 @@
   在能力範圍內」改成「減少干擾變因」。`context` 欄位標的是寫那則 comment 需要多少上下文，不是只看
   diff 的能力上限：論文 Table 4 裡，DeepSeek-V3.2 不給上下文時，File／Repo Level 的問題仍各找得到
   三成多。
+- `.github/scripts/post_review.py` 開頭 docstring 的「冪等」那條，把摘要的貼法寫錯了：寫的是
+  `gh pr comment --edit-last --create-if-none`（每次編輯同一則留言），實際呼叫的是
+  `gh pr review --comment`，每次執行都新建一則 review。冪等只做在 inline comment：同一個
+  `(path, line)` 已經有帶 `<!-- deepseek-review -->` 標記的留言就不重貼。
 
 ## [1.4.0] - 2026-09-24
 

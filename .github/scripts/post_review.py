@@ -16,8 +16,8 @@
     真的指向它 evidence 引用的那段 code，其餘偏移 +1 到 +24 行。詳見 locate.py。
   * **再驗證行號**：只有落在 diff hunk 內的新增側行號才會貼 inline comment，
     否則 GitHub API 會回 422。驗證失敗的 finding 會被降級寫進 summary。
-  * **冪等**：summary 用 `gh pr comment --edit-last --create-if-none`；
-    inline comment 會比對既有的 `<!-- deepseek-review -->` 標記，不重複張貼。
+  * **冪等只做在 inline comment**：比對既有帶 `<!-- deepseek-review -->` 標記的留言，
+    同一個 `(path, line)` 不重貼。摘要用 `gh pr review --comment`，每次執行都新建一則 review。
   * **不 gating**：預設只留 COMMENT review，不送 REQUEST_CHANGES，
     避免模型（或 prompt injection）取得擋 merge 的能力。要開啟請用 --request-changes-on-blocker。
 """
