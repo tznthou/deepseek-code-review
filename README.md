@@ -1,7 +1,7 @@
 # code-review-kit — GitHub PR 自動化 Code Review 起手包
 
-一份可以直接放進 repo 的實作範本：**便宜的先跑（linter/SAST），貴的才跑（LLM），
-而且 fork PR 也安全。**
+一份可以直接放進 repo 的實作範本：**linter/SAST 這類確定性檢查當合併關卡，
+AI review 同時跑、只給意見，而且 fork PR 也安全。**
 
 [![latest release](https://img.shields.io/github/v/release/tznthou/deepseek-code-review?style=flat-square&label=latest)](https://github.com/tznthou/deepseek-code-review/releases)
 [![selftest](https://img.shields.io/badge/selftest-100%20passing-brightgreen?style=flat-square)](tools/selftest.py)
@@ -19,7 +19,7 @@ $ ./review-local.sh origin/main          # 本機先試一次，不碰 GitHub
 
 ### 它在什麼標的上有用
 
-命中率**由標的型態決定，不是由模型決定**（完整數據見 §4）：
+模型用 `deepseek-v4-pro` 的前提下，**命中率主要看標的：型態，以及作者有沒有把決策理由寫在 code 旁邊**（完整數據見 §4）：
 
 | 標的 | 實測 | 建議 |
 |---|---|---|
@@ -27,7 +27,8 @@ $ ./review-local.sh origin/main          # 本機先試一次，不碰 GitHub
 | TypeScript／React（22 檔） | 引用的 code 逐字核對，零捏造 | ✅ |
 | Rust（8 檔） | 提到的五個符號全部真實存在 | ✅ |
 | Shell（6 檔） | `deepseek-flash` 4 個技術斷言錯 3 個；`v4-pro` 抓到真的參數驗證缺口 | ⚠️ 一定要用 `v4-pro`，且每筆實跑 |
-| Markdown／文件（27 檔） | **16 筆只有 1 筆成立**，註解密度 51.7% | ⛔ 不要跑，會空手而回（§4.8） |
+| TypeScript／React，註解密度高（27 檔） | **16 筆只有 1 筆成立**（v4-pro 6 筆 1 筆、flash 10 筆 0 筆），註解密度 51.7% | ⚠️ 先抽看註解密度，高的就別跑（§4.8） |
+| Markdown／文件 | 純文件 PR 兩個：一個 2 筆裡 1 筆成立、成立那筆只是語氣（§8 的 PR #1），一個 0 筆（§4.8 的 #24） | ⛔ 不要跑，會空手而回 |
 
 > 這張表的樣本是各一到兩次跑，**不是統計結論**。本工具不可重現（§8「已知的不穩定」），
 > 方向可以參考，數字不要當指標。
@@ -1027,7 +1028,7 @@ token 消耗是實打實的。要變成「每個 PR 都自動跑一次」的流�
 
 所以這個 repo 的重心後來從「做一個工具」偏向「量這個工具」：
 
-- §4 記的是實測，包含 markdown 標的上 **16 筆只有 1 筆成立**這種難看的數字
+- §4 記的是實測，包含註解密度高的 TS/React PR 上 **16 筆只有 1 筆成立**這種難看的數字
 - §8 明寫哪些驗過、哪些沒驗、哪些已知不穩定
 - `tools/eval/` 是評估框架而不是功能，存在的唯一理由是讓下一個想法先被量過再上線
 - 它砍掉過自己加的 review filter——700 則人工標註資料顯示那一層讓 precision 變差
