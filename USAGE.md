@@ -32,7 +32,7 @@
 | 還沒裝過 | `grep -rl 'tznthou/deepseek-code-review' .github/workflows/ 2>/dev/null` 沒有任何輸出 | 已經裝過了：停下並回報 |
 | 這個 repo 會開 PR | `gh pr list --state all --limit 5` 有結果 | 還是可以裝，但要告訴使用者：**直接 push 到預設分支不會觸發** |
 | 公開還是私有 | `gh repo view --json visibility -q .visibility` | 用來決定下一步要裝哪幾支 |
-| Actions 政策沒有擋 | `gh api 'repos/{owner}/{repo}/actions/permissions'` | 正常是 `"enabled":true`、`"allowed_actions":"all"`、`"sha_pinning_required":false`。任一項不同就停下，把「第 2 步」最後一節「Actions 政策」轉告使用者，不要自己改設定。指令失敗（沒有 admin 權限就查不到）時直接問使用者 |
+| Actions 政策沒有擋 | `gh api 'repos/{owner}/{repo}/actions/permissions'` | 正常是 `"enabled":true`、`"allowed_actions":"all"`；`"sha_pinning_required"` 是 `true` 或 `false` 都可以（`v1.4.1` 起）。前兩項任一不同就停下，把「第 2 步」最後一節「Actions 政策」轉告使用者，不要自己改設定。指令失敗（沒有 admin 權限就查不到）時直接問使用者 |
 
 ### 2. 決定裝哪幾支
 
@@ -193,6 +193,7 @@ curl -s https://api.deepseek.com/user/balance \
 ```bash
 gh api repos/<owner>/<repo>/actions/permissions
 # 沒問題的樣子：{"enabled":true,"allowed_actions":"all","sha_pinning_required":false}
+# sha_pinning_required 是 true 也可以（v1.4.1 起，見本節最後）
 ```
 
 網頁上的位置是 Settings → Actions → General → Actions permissions。組織底下的 repo，組織層級可能還有限制，
@@ -203,7 +204,7 @@ gh api repos/<owner>/<repo>/actions/permissions
 | `"enabled":false` | Actions 整個關閉，什麼都不會跑 | 在同一頁打開 |
 | `"allowed_actions":"local_only"`（只允許自己帳號或組織的 action） | 每一支都 `startup_failure`，**連只要讀權限的 collect 也是**；post 根本不會被觸發 | 改成 `selected`，照下面的清單開 |
 | `"allowed_actions":"selected"` | 清單少了哪一個就會被擋。少的如果是 action 內部再引用的（例如下面的 `setup-trivy`），只有那個 job 失敗，其他照跑 | 照下面的清單補 |
-| `"sha_pinning_required":true`（強制釘 SHA） | collect 和 code-review 的 job 都在 Set up 階段失敗，post 因此跳過（skipped） | **目前沒辦法**，見本節最後 |
+| `"sha_pinning_required":true`（強制釘 SHA） | `v1.4.1` 起不會被擋。引用 `v1.4.0` 以前的版本時，collect 和 code-review 的 job 都在 Set up 階段失敗，post 因此跳過（skipped） | 用 `@v1`，或釘在 `v1.4.1` 以後，見本節最後 |
 
 `selected` 要允許的東西（2026-09-24 在測試 repo 實測）：
 
@@ -223,15 +224,24 @@ gh api repos/<owner>/<repo>/actions/permissions
 The actions actions/checkout@v7 and actions/upload-artifact@v7 are not allowed in <owner>/<repo> because all actions must be from a repository owned by <owner>.
 ```
 
-**強制釘 SHA 的 repo，目前不能用這套。** reusable workflow 可以用 tag 引用，所以你的 `@v1`
-不會被擋；但這個政策會一路檢查到這套**內部**用到的 action，而那些都是用 tag 引用的（例如
-`actions/checkout@v7`）。所以就算你把 `@v1` 換成 commit SHA，還是一樣會失敗：
+**強制釘 SHA 的 repo，`v1.4.1` 起可以用這套。** reusable workflow 本身可以用 tag 引用，所以你的
+`@v1` 不會被擋；但這個政策會一路檢查到這套**內部**用到的 action。`v1.4.0` 以前那些都是 tag 引用
+（例如 `actions/checkout@v7`），就算你把 `@v1` 換成 commit SHA，還是一樣會失敗：
 
 ```
 The actions actions/checkout@v7 and actions/upload-artifact@v7 are not allowed in <owner>/<repo> because all actions must be pinned to a full-length commit SHA.
 ```
 
-走複製路線（README §2）的話，可以自己把 action 釘成 SHA，但這條我們沒有實測。
+`v1.4.1` 起這套內部用到的 action 全部釘在 commit SHA，`trivy-action` 內部再引用的也是。2026-09-26
+在測試 repo 開著這個政策實測：collect、code-review、post 都跑到最後；同一個設定下，還停在 `v1.4.0`
+的 caller 照樣被上面那句擋下。要釘版本的話，釘在 `v1.4.1` 以後（`kit-ref` 一起）。
+
+⚠️ 沒實測到的：測試 repo 沒有依賴清單，dependency review 那個 job 是跳過的，而跳過的 job 不會被這個
+政策檢查。它引用的 `actions/dependency-review-action` 一樣釘了 SHA、裡面沒有再引用別的 action，
+但沒有在這個政策下實際跑過。
+
+走複製路線（README §2）的話，`01`、`02` 裡的 action 也已經釘好 SHA，複製過去就是釘好的版本；
+這條路線同樣沒有在開著這個政策的 repo 上實測過。
 
 ## 第 3 步：放三個檔案
 

@@ -11,6 +11,14 @@
 
 ## [Unreleased]
 
+### Docs
+
+- USAGE「第 2 步」與 README §7 的「強制 action 釘 SHA 的 repo 目前不能用」改寫成 `v1.4.1` 起可以用。
+  2026-09-26 在測試 repo 開著這個政策實測：collect、code-review、post 都跑到最後；同一個設定下，
+  還停在 `v1.4.0` 的 caller 照樣被擋。沒實測到的也寫明了：測試 repo 沒有依賴清單，dependency review
+  那個 job 是跳過的，而跳過的 job 不會被這個政策檢查。AI agent 安裝程序的前提檢查同步放寬
+  （`sha_pinning_required` 是 `true` 也可以）。
+
 ## [1.4.1] - 2026-09-26
 
 > **patch**：kit 內部的 action 改釘 commit SHA，外加兩個 reusable 小修。reusable workflow 的介面沒動，
