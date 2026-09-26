@@ -11,6 +11,14 @@
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-26
+
+> **patch**：kit 內部的 action 改釘 commit SHA，外加兩個 reusable 小修。reusable workflow 的介面沒動，
+> caller 不用改任何東西，引用 `@v1` 的 repo 會自動拿到新版。
+> 唯一要留意的是 Actions 政策設成 `selected` 的 repo：允許清單照 USAGE 寫 `@*` 的不受影響（`@*` 也配得到
+> SHA 引用，2026-09-24 實測過）；如果寫死了 tag（例如 `reviewdog/action-setup@v1`），這一版起 kit 內部
+> 改用 SHA 引用，會對不上而被擋，要改成 `@*`。
+
 ### Changed
 
 - **workflow 裡的外部 action 全部改釘 commit SHA**（37 處：reusable workflow 內部 19 處、本 repo 自己的
@@ -73,7 +81,7 @@
 > 引用 `@v1` 的 repo 會自動拿到新版。想先觀察再升級，要**兩處一起**釘在 `v1.3.1`：
 > `uses:` 改成 `@v1.3.1`，而且 `reusable-ai-review-post.yml`（以及 `reusable-codeql.yml`）
 > 要傳 `kit-ref: v1.3.1`。只改 `uses:` 的話，rubric 會照樣從 `kit-ref` 的預設值 `v1`
-> checkout，拿到的還是新版。（這段發版時只寫了改 `uses:`，2026-09-24 更正，見 `[Unreleased]`。）
+> checkout，拿到的還是新版。（這段發版時只寫了改 `uses:`，2026-09-24 更正，見 `[1.4.1]`。）
 
 ### Changed
 
@@ -406,7 +414,8 @@
   方式導入，不必複製腳本也不必複製 rubric。
 - `USAGE.md`：三步驟導入說明與可直接複製的 caller 範本。
 
-[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.2.2...v1.3.0
