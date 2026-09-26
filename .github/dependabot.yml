@@ -1,0 +1,13 @@
+# workflow 裡的 action 都釘在 commit SHA（v1.4.1 起），靠這裡每週開 PR 提醒升級。
+# 註解的版本號要寫完整的 vX.Y.Z 並放在行尾，Dependabot 換 SHA 時才會一起更新註解。
+# reusable workflow 也在這個目錄：這裡的更新 merge 之後，要等下一次發版，引用 @v1 的 repo 才會拿到。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

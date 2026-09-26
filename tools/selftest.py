@@ -38,6 +38,86 @@ def input_default(workflow_text: str, name: str) -> str | None:
     return None
 
 
+def workflow_uses(workflow_text: str) -> list[tuple[int, str, str]]:
+    """列出外部 action 的 `uses:`：(行號, 引用, 同一行 `#` 後面的註解)。
+
+    跳過註解行、`./` 本地引用、`/.github/workflows/` 的 reusable workflow 引用——
+    「強制釘 SHA」只管 action，reusable workflow 仍然可以用 tag 引用（USAGE「第 2 步」）。
+    """
+    found = []
+    for no, line in enumerate(workflow_text.splitlines(), 1):
+        m = re.match(r"\s*(?:-\s+)?uses:\s*(\S+)\s*(?:#\s*(.*?))?\s*$", line)
+        if not m:
+            continue
+        ref = m.group(1)
+        if ref.startswith("./") or "/.github/workflows/" in ref:
+            continue
+        found.append((no, ref, m.group(2) or ""))
+    return found
+
+
+INPUT_EXPR = re.compile(r"\$\{\{\s*(?:github\.event\.)?inputs\.")
+
+
+def run_block_input_refs(workflow_text: str) -> list[int]:
+    """回傳 `run:` 裡直接內插 input 的行號（含單行 `run:`）。
+
+    `'${{ inputs.x }}'` 是先展開才交給 shell，值裡有單引號就會提前結束引號；input 要先進 `env:`。
+    區塊以縮排界定：`run:` 這個 key 之後、縮排比它深的行都屬於它。shell 註解照樣算，
+    因為 expression 早於 shell 解析，寫在註解裡一樣會展開。
+    """
+    lines = workflow_text.splitlines()
+    hits: list[int] = []
+    i = 0
+    while i < len(lines):
+        m = re.match(r"(\s*(?:-\s+)?)run:(.*)$", lines[i])
+        i += 1
+        if not m:
+            continue
+        key_col = len(m.group(1))
+        rest = m.group(2).strip()
+        if not rest.startswith(("|", ">")):
+            if INPUT_EXPR.search(rest):
+                hits.append(i)
+            continue
+        while i < len(lines):
+            nxt = lines[i]
+            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= key_col:
+                break
+            if INPUT_EXPR.search(nxt):
+                hits.append(i + 1)
+            i += 1
+    return hits
+
+
+# 最後一個 step 是 `- run: |` 接同一個 step 的 env:。2026-09-26 PR #39 的 AI review 建議把 key_col
+# 改成只算前導空白（不含 `- `）：照改的話這個 env: 會被算進 run 區塊，而前面幾個 case 照樣全過。
+RUN_PROBE = """\
+jobs:
+  a:
+    steps:
+      - name: env 在 run 前面
+        env:
+          OK_ENV: ${{ inputs.a }}
+        run: |
+          echo "$OK_ENV"
+          echo '${{ inputs.b }}'
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.c }}
+      - run: echo ${{ github.event.inputs.d }}
+      - name: env 在 run 後面
+        run: |
+          echo "$LATE"
+        env:
+          LATE: ${{ inputs.e }}
+      - run: |
+          echo '${{ inputs.f }}'
+        env:
+          DASH: ${{ inputs.g }}
+"""
+
+
 def load(rel: str, name: str):
     spec = importlib.util.spec_from_file_location(name, ROOT / rel)
     module = importlib.util.module_from_spec(spec)
@@ -559,6 +639,36 @@ def main() -> int:
             stated is not None and found is not None and float(stated.group(1)) == float(found),
             (stated and stated.group(1), found),
         )
+
+    print("[18] workflow：外部 action 釘 commit SHA，input 不直接內插進 run")
+    # 2026-09-24 實測：caller 開了「強制 action 釘 SHA」時，擋下來的是 kit 裡面的 tag 引用，
+    # caller 自己怎麼釘都沒用。v1.4.1 起全部釘 SHA；這個承諾壞掉時本 repo 的 CI 照樣全綠
+    # （本 repo 沒開那個政策，03/04 又跑已發布的 @v1），所以只能在這裡擋。
+    # 註解要寫完整的 vX.Y.Z 並放在行尾，Dependabot 換 SHA 時才會一起更新。
+    wf_paths = sorted([*(ROOT / ".github/workflows").glob("*.yml"), *(ROOT / ".github/workflows").glob("*.yaml")])
+    ext_uses: list[str] = []
+    unpinned: list[str] = []
+    run_hits: list[str] = []
+    for wf_path in wf_paths:
+        text = wf_path.read_text(encoding="utf-8")
+        for no, ref, comment in workflow_uses(text):
+            where = f"{wf_path.name}:{no}"
+            ext_uses.append(where)
+            if not (
+                re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", ref)
+                and re.fullmatch(r"v\d+\.\d+\.\d+", comment)
+            ):
+                unpinned.append(f"{where} {ref} #{comment}")
+        run_hits += [f"{wf_path.name}:{no}" for no in run_block_input_refs(text)]
+    check("找得到外部 action 的 uses:", bool(ext_uses), len(ext_uses))
+    check(
+        "外部 action 全部釘 40 字元 SHA，行尾註解是完整版本號",
+        not unpinned,
+        f"{len(unpinned)} 處，例如 {unpinned[:3]}",
+    )
+    check("run: 裡沒有直接內插 input", not run_hits, run_hits)
+    probe_hits = run_block_input_refs(RUN_PROBE)
+    check("探針：run: 裡的內插抓得到（含 `- run: |`），env:／with: 的值不算", probe_hits == [9, 13, 20], probe_hits)
 
     print()
     if failures:
