@@ -32,8 +32,14 @@ $ ./review-local.sh origin/main          # 本機先試一次，不碰 GitHub
 > 這張表的樣本是各一到兩次跑，**不是統計結論**。本工具不可重現（§8「已知的不穩定」），
 > 方向可以參考，數字不要當指標。
 
-### 這個 kit 對自己做過的兩件事
+### 實測紀錄
 
+每一組實測問了什麼、怎麼量、結果是什麼，都列在 [`experiments/`](experiments/README.md)。其中四組：
+
+* **修改型 PR 上，功能缺陷報到的不到一半。** 在 [Qodo PR-Review-Bench](https://huggingface.co/datasets/Qodo/PR-Review-Bench)
+  的 100 個修改型 PR、309 則注入的功能缺陷上，盲標為「同一個問題」的有 **44.3%**（[細節](experiments/2026-09-25-qodo-bench.md)）。
+* **給它 repo 規範，規則類多抓、功能缺陷少抓。** 同一份資料的 31 個 PR，整份規範放進同一次呼叫：
+  違反規則的從 7.8% 升到 18.7%，功能缺陷從 46.9% 降到 43.2%（盲標，[細節](experiments/2026-09-26-rules-loop.md)）。
 * **砍掉了自己加的一個功能。** 曾經有一層「第二次呼叫過濾誤報」，用 700 則人工標註
   資料實測後發現它**誤刪 15 筆正確的、只刪對 4 筆**，precision 反而變差 → 整個移除。
   評估工具留在 `tools/eval/`，任何人都能拿自己的 prompt 重跑（§8）。
@@ -81,6 +87,7 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │   └── eval/                               # 用人工標註資料評估 prompt 的效果
 │       ├── build_eval_set.py               #   下載 AACR-Bench + 抓 PR diff
 │       └── eval_filter.py                  #   算誤刪率／抓錯率（prompt 自備）
+├── experiments/                            # 實測紀錄：索引在 README.md，每組實驗一頁
 ├── review-local.sh                         # 本機跑一次 review，不碰 GitHub
 ├── USAGE.md                                # ⭐ 在別的 repo 導入這套（三步驟，主要路線）
 ├── CHANGELOG.md                            # 版本變更紀錄（含 v1 浮動 tag 的破壞性變更標記）
@@ -208,6 +215,10 @@ export DEEPSEEK_API_KEY=sk-xxxx
 
 ⚠️ 還有一個方向性的限制：**這招只在「給它 diff 裡看不到的前提」時有效**。
 寫成「不要報 X 類問題」這種自我約束規則會無效，而且實測會讓誤報更難識破——見 §4.7。
+
+⚠️ 禁區挑會被違反的幾條就好，別把整份規範檔貼進來。2026-09-26 在 Qodo PR-Review-Bench 的 31 個 PR 上量過：
+整份規範放進同一次呼叫，違反規則的抓到的比例從 7.8% 升到 18.7%，功能缺陷卻從 46.9% 降到 43.2%（盲標）。
+只挑幾條的代價沒量過。細節見[實測紀錄](experiments/2026-09-26-rules-loop.md)。
 
 ### 步驟 6：設為 required status check
 

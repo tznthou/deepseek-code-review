@@ -13,6 +13,14 @@
 
 ### Docs
 
+- 新增 `experiments/`：實測紀錄的公開索引。實驗的原始資料一直放在不進 repo 的私有目錄，
+  README §9 說這個 repo 值得看的是實測紀錄，但 09-25 起方法最硬的兩組只有我們自己看得到。
+  索引列了 13 組實驗：已經寫在 README／CHANGELOG 的只寫結論、連過去，數字不重抄；另外寫了
+  兩頁新的——修改型 PR 的 recall 基準線（Qodo PR-Review-Bench），以及把 repo 規範放進 prompt 的得失。
+- README 開頭「這個 kit 對自己做過的兩件事」改成「實測紀錄」，補上上面那兩組，數字都帶分母與條件；
+  §1 檔案總覽加上 `experiments/`。
+- README §2 步驟 5 補一條：整份規範檔放進同一次呼叫，功能缺陷的 recall 會掉（盲標量過），
+  只挑幾條的代價沒量過。
 - USAGE「第 2 步」與 README §7 的「強制 action 釘 SHA 的 repo 目前不能用」改寫成 `v1.4.1` 起可以用。
   2026-09-26 在測試 repo 開著這個政策實測：collect、code-review、post 都跑到最後；同一個設定下，
   還停在 `v1.4.0` 的 caller 照樣被擋。沒實測到的也寫明了：測試 repo 沒有依賴清單，dependency review
