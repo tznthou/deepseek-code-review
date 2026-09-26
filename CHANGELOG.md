@@ -11,6 +11,35 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **workflow 裡的外部 action 全部改釘 commit SHA**（37 處：reusable workflow 內部 19 處、本 repo 自己的
+  `01`／`02`／`05`／`eval-filter` 18 處）。開了「強制 action 釘 SHA」（Settings → Actions → General，
+  API 欄位 `sha_pinning_required`）的 repo，之後就能用引用路線：2026-09-24 實測，這個政策擋的是
+  kit 裡面的 tag 引用，caller 自己怎麼釘 kit 都沒用。複製路線的範本（`01`、`02`）也一起釘了。
+  - 釘的是原本那個 tag 當下指向的 commit，action 本身的 code 一行都沒變。action 執行時才下載的東西
+    （`reviewdog_version: latest` 的 binary、trivy 的漏洞資料庫、CodeQL bundle）本來就不受 SHA 控制，
+    這點跟以前一樣。
+  - 註解寫完整版本號並放在行尾（`# v7.0.1`）。Dependabot 換 SHA 時，是在註解裡找舊的完整版本字串換掉：
+    只寫 `# v7`、或版本號後面還接著別的字，註解都不會跟著更新。
+  - 新增 `.github/dependabot.yml`：github-actions 每週檢查一次，所有更新併成一個 PR。
+  - 代價：以前 `@v7` 會自動拿到 action 的修正版，現在要走 Dependabot PR → merge → kit 發版，
+    引用 `@v1` 的 repo 才拿得到。
+- `tools/selftest.py` 從 17 組 96 項增加到 **18 組 100 項**。新增的那一組確認 workflow 裡的外部 action
+  全部釘了 SHA、註解是完整版本號，而且 `run:` 裡沒有直接內插 input。釘 SHA 這件事被改壞時，本 repo
+  的 CI 照樣全綠（本 repo 沒開那個政策，`03`／`04` 又跑已發布的 `@v1`），只有這裡擋得到。
+
+### Fixed
+
+- `reusable-ai-review-post.yml` 的 concurrency group 連 head repo 一起放。原本只用 branch 名，
+  來自不同 repo（fork）的同名 branch（`main`、`patch-1` 這類）會落在同一個 group，後到的 run 會取消
+  先到的，先到的那個 PR 就拿不到 review。這是看 code 發現的，沒有實際遇到。
+- caller 傳進來的 6 個 input 改走 `env:`，不再直接內插進 `run:`：`reusable-ai-review-post.yml` 的
+  `min-severity`、`min-confidence`、`max-inline`，以及 `reusable-static-review.yml` 的
+  `lint-errorformat`、`lint-name`、`fail-level`。`'${{ … }}'` 是先展開才交給 shell，值裡有單引號就會
+  提前結束引號。這些值由 caller 自己的 workflow 檔決定，不是外部 PR 作者控制的，所以這是一致性修正、
+  不是注入漏洞；同一支檔案的其他 input 本來就走 env。
+
 ### Docs
 
 - 釘版本的說明補上 `kit-ref`。`reusable-ai-review-post.yml` 與 `reusable-codeql.yml` 會用 `kit-ref`
