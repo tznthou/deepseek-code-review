@@ -459,7 +459,7 @@ gh workflow run eval-filter.yml \
 要不要承擔這件事，取決於你信不信任我們不亂動那個 tag。我們的承諾（`v1` 內不移除 input、
 破壞性變更進 v2）寫在 README §5 最後一節，連同我們自己破過一次的紀錄。
 
-不想承擔就釘死：`uses:` 用 `@v1.4.0` 這種不可變 tag，或直接用 commit SHA（GitHub 官方對第三方
+不想承擔就釘死：`uses:` 用 `@v1.4.1` 這種不可變 tag，或直接用 commit SHA（GitHub 官方對第三方
 workflow 的建議做法）。⚠️ **`reusable-ai-review-post.yml` 與 `reusable-codeql.yml` 還要把 `kit-ref`
 設成同一個值**：這兩支會在執行時另外 checkout kit（腳本、內建 rubric、CodeQL 設定），而 `kit-ref`
 預設是 `v1`。只改 `uses:` 的話，workflow 停在你釘的版本，腳本和 rubric 卻照樣跟著 `v1` 走，
@@ -467,9 +467,9 @@ workflow 的建議做法）。⚠️ **`reusable-ai-review-post.yml` 與 `reusab
 
 ```yaml
   post:
-    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1.4.0
+    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1.4.1
     with:
-      kit-ref: v1.4.0   # 跟上面的 @ 一起改
+      kit-ref: v1.4.1   # 跟上面的 @ 一起改
 ```
 
 兩處都釘了，跑的才完全是那一版；代價是修正不會自動到你手上。
