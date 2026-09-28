@@ -185,7 +185,7 @@
 - `USAGE.md` 的 `code-review.yml` 範例註解寫的是「三個最容易踩的坑」的第 4 點，但那一節從
   USAGE 第一版（`d3dcaec`）開始就是四個。
 - `USAGE.md` 的「第 2 步」補上 Actions 政策（Settings → Actions → General）：2026-09-24 在測試 repo
-  切換四組設定實測。這是 tautin 驗收時 AI 提出、之前一直沒測的坑。
+  切換四組設定實測。這是在外部 repo 實際導入時，驗收的 AI 提出、之前一直沒測的坑。
   - 「只允許自己帳號的 action」：kit 裡面用到的 `actions/checkout` 等會被擋，每一支都 `startup_failure`，
     連 collect 也是，post 根本不會被觸發。
   - `selected` 模式要允許的清單已列出。其中 `aquasecurity/setup-trivy` 是 `trivy-action` 內部引用的，
