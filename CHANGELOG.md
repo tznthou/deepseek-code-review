@@ -11,6 +11,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- 本 repo 的 CI 多一支 `kit-selftest.yml`：每個 PR 與 main 上的每個 commit 都跑 `tools/selftest.py`，
+  接著用 ruff 做基本 lint（只選 `E4`／`E7`／`E9`／`F`＝語法錯、未定義名稱、沒用到的 import；`--isolated`
+  不讀設定檔，版本釘 `0.16.9`）。這支設為 main 的必要檢查；發版 commit 在 main 上這個 check 不是 success，
+  就不移 `v1`。原因：selftest 原本只靠人記得跑，而別的 repo 透過浮動的 `@v1` 接收更新，漏跑放過去的錯
+  會直接送到下游。只在本 repo 跑（複製路線把它帶走也不會在對方 repo 觸發）；kit 本身的行為沒有變。
+
 ### Docs
 
 - `repo-rules-path` 的說明等 `v1` 移到 `v1.5.0` 之後才補：USAGE「客製」加一節（格式、送出什麼、

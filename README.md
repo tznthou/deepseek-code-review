@@ -76,7 +76,8 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 │       ├── reusable-codeql.yml             #   別人的 caller 用 @v1 指過來，不必複製腳本
 │       ├── reusable-ai-review-collect.yml  #
 │       ├── reusable-ai-review-post.yml     #
-│       └── eval-filter.yml                 # 手動觸發：用 AACR-Bench 評估 prompt（§8）
+│       ├── eval-filter.yml                 # 手動觸發：用 AACR-Bench 評估 prompt（§8）
+│       └── kit-selftest.yml                # 本 repo 的 CI：selftest + ruff，main 的必要檢查
 ├── prompts/
 │   ├── review-rubric.md                    # 04 用的 review playbook（system prompt）
 │   ├── rules/                              # 依 diff 的檔案型態附加的補充規則

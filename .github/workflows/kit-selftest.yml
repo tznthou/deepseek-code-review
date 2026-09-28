@@ -1,0 +1,51 @@
+# kit selftest — 本 repo 自己的 CI（不是 kit 的一部分，別的 repo 不必引用）
+#
+# 跑兩件事：tools/selftest.py（離線、不需要 secret），以及 ruff 的基本 lint。
+# 這支是 main 的必要檢查（ruleset）。發版流程也看它：發版 commit 在 main 上
+# 這個 check 不是 success，就不移 `v1`。
+#
+# 為什麼要有這支：selftest 原本只靠人記得跑，而別的 repo 透過浮動的 `@v1`
+# 接收更新，漏跑放過去的錯會直接送到下游。
+#
+# ⚠️ 只在本 repo 跑：複製路線 `cp -r .github` 會把這支一起帶走，
+#    job 用 github.repository 擋掉，免得在對方 repo 的每個 PR 自動觸發。
+
+name: kit selftest
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# PR 上只留最新一次；main 上每個 commit 各自跑完（發版 commit 要有自己的結果）
+concurrency:
+  group: kit-selftest-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  selftest:
+    name: selftest
+    if: github.repository == 'tznthou/deepseek-code-review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # 用 runner 內建的 python3：reusable workflow 執行 kit 時用的也是它，不另外裝版本
+      - name: selftest
+        run: |
+          python3 --version
+          python3 tools/selftest.py
+
+      # 規則明確列出，而且不讀任何設定檔（--isolated）：ruff 0.16 起預設規則擴到四百多條，
+      # 多半是風格；這裡只抓「會出錯」的那一類——語法錯、未定義名稱、沒用到的 import。
+      # 版本釘死，Dependabot 不會更新這一行，要升級就手動改。
+      # selftest 失敗時照樣跑，一次 run 就看得到兩邊的結果。
+      - name: ruff
+        if: success() || failure()
+        run: pipx run --spec ruff==0.16.9 ruff check --isolated --select E4,E7,E9,F .github/scripts tools
