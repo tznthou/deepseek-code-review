@@ -61,6 +61,7 @@ deepseek-code-review/                        # repo 根目錄——kit 就跑在
 ├── .github/
 │   ├── codeql/codeql-config.yml            # CodeQL 查詢設定（security-and-quality + local threat model）
 │   ├── dependabot.yml                      # 每週檢查 action 更新（workflow 裡的 action 全部釘 commit SHA）
+│   ├── review-rules.md                     # 本 repo 自己的規範檔（04 的 repo-rules-path，dogfood）
 │   ├── scripts/
 │   │   ├── deepseek_review.py              # diff → DeepSeek → review.md + findings.json（純標準庫）
 │   │   ├── locate.py                       # 行號由片段文字比對算出，不信模型自報的（見 §8）
@@ -221,6 +222,8 @@ export DEEPSEEK_API_KEY=sk-xxxx
 ⚠️ 禁區挑會被違反的幾條就好，別把整份規範檔貼進來。2026-09-26 在 Qodo PR-Review-Bench 的 31 個 PR 上量過：
 整份規範放進同一次呼叫，違反規則的抓到的比例從 7.8% 升到 18.7%，功能缺陷卻從 46.9% 降到 43.2%（盲標）。
 只挑幾條的代價沒量過。細節見[實測紀錄](experiments/2026-09-26-rules-loop.md)。
+要給整份規範檔，用 `repo-rules-path`（`v1.5.0` 起）：另外用一次呼叫，只留標了規範編號的 finding，
+功能缺陷不受影響。設定方式與規範檔的格式見 USAGE「客製」一節。
 
 ### 步驟 6：設為 required status check
 
@@ -673,7 +676,8 @@ fork PR ──▶ 03 collect（GITHUB_TOKEN 唯讀、零 secret、只產生 arti
 上面那張表問的是「外面的人能對我們做什麼」，下一節問的是「上游能對我們做什麼」。
 還有一個方向兩者都不包含——**我們主動送出去了什麼**。
 
-這套工具每次跑都會把 **diff、PR 標題、rubric** 送到 DeepSeek 的 API。
+這套工具每次跑都會把 **diff、PR 標題、rubric** 送到 DeepSeek 的 API；設了 `repo-rules-path` 的話，
+規範檔的條目也會送出（`v1.5.0` 起的 opt-in，同樣在下面的禁用詞掃描範圍內）。
 DeepSeek 的隱私政策明寫會用使用者輸入來訓練模型。對 public repo 來說那些內容本來就公開，
 但兩種東西即使在 public repo 裡也不該送出去：
 
@@ -767,7 +771,7 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 | **每個 step 都 success、`review.md` 完整，但 PR 上一則留言都沒有** | `gh pr` 子命令靠當前目錄的 git remote 推斷 repo，走 reusable 時工作目錄根沒有 git repo。`v1.0.2` 補上 `--repo` 修掉，並改成失敗時印 `::warning::`。若你複製的是舊版腳本，檢查 `gh pr review` 有沒有帶 `--repo` |
 | log 出現 `重新定位 A → B` | 正常。行號由程式用程式碼片段比對算出，模型報的當備援——實測它報的行號 16 筆只有 1 筆真的指對。見 §8 |
 | **改了 kit 自己的 code，PR 跑完全綠卻看不到效果** | 本 repo 的 `03`／`04` 引用 `@v1`，`.kit` checkout 的是**已發布版本**，PR 裡的改動一行都不會執行。而且 `04` 由 `workflow_run` 觸發、跑的是 default branch 的 workflow，所以連「在 branch 上改 `kit-ref`」都無效。要驗只能走發布流程：合併 → 打 tag → 移動 `v1` → 下一個 PR |
-| **caller 新傳一個 secret，merge 進 default branch 之後 `04` 變成 `startup_failure`** | 你的 caller 引用 `@v1`，而那個 secret 是**還沒發版**的 reusable 才認識的。PR 上驗不到——`04` 由 `workflow_run` 觸發、跑的是 **default branch** 的 caller，merge 前那還是舊的。所以它只在「merge 後、發版前」這段窗口炸。**2026-09-22 本 repo 自己踩過**：`v1.3.0` 發版前的兩分鐘內，main 上的 `04` 是壞的。順序要反過來：**先發版，再讓 caller 傳新 secret**；或把 caller 的 `kit-ref` 釘到含該 secret 的版本 |
+| **caller 新傳一個 secret 或 input，merge 進 default branch 之後 `04` 變成 `startup_failure`** | 你的 caller 引用 `@v1`，而那個 secret 或 input 是**還沒發版**（或 `v1` 還沒移過去）的 reusable 才認識的。PR 上驗不到——`04` 由 `workflow_run` 觸發、跑的是 **default branch** 的 caller，merge 前那還是舊的。所以它只在「merge 後、發版前」這段窗口炸。**2026-09-22 本 repo 自己踩過**：`v1.3.0` 發版前的兩分鐘內，main 上的 `04` 是壞的。順序要反過來：**先等 `v1` 移到含它的版本，再讓 caller 傳**；或把 `uses:` 的 `@` 釘到含它的版本（`kit-ref` 一起）。只改 `kit-ref` 沒用：它只決定執行時 checkout 哪一版腳本，認不認得這個 secret 或 input 看的是 `uses:` 那一版 |
 | **run 是 `startup_failure`，`gh run view` 只說 "workflow file issue"** | CLI 看不到原因，`--log-failed` 也是空的。**到網頁上那個 run 頁面看 Annotations**。實際遇過的有三種：caller 漏了 `permissions:`（USAGE「四個最容易踩的坑」第 4 點）、caller 傳了 reusable 不認識的 input 或 secret（上一列）、repo 的 Actions 政策只允許自己帳號的 action（USAGE「第 2 步」最後一節，2026-09-24 實測）。是哪一種以 Annotations 為準；權限不足跟政策這兩種可以先用一個對照分：權限不足時只要讀權限的 collect 照樣跑得起來，政策擋下的連 collect 也起不來 |
 | **job 在 Set up 就失敗，log 寫著 `… must be pinned to a full-length commit SHA`** | repo 或組織開了「強制 action 釘 SHA」，而你引用的是 `v1.4.0` 以前的版本：那時這套內部的 action 還是 tag 引用，caller 把 `@v1` 換成 SHA 也沒用（2026-09-24 實測）。**改用 `@v1`，或釘在 `v1.4.1` 以後（`kit-ref` 一起）**：`v1.4.1` 起內部全部釘 SHA（2026-09-26 實測）。見 USAGE「第 2 步」最後一節 |
 | 05 卡在 approval / 工具被拒 | headless 無互動審批通道，屬預期行為。檢查是否誤讓 agent 需要寫入權限 |

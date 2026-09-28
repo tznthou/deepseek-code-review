@@ -391,6 +391,63 @@ The nested job 'review' is requesting 'actions: read, pull-requests: write', but
 照著 `prompts/review-rubric.md` 改。⚠️ **那份檔案整份就是 system prompt**——
 不要在裡面寫給人看的註解或元評論，它會進 prompt 並影響行為（實測過）。
 
+### （選用）整份規範檔：另外用一次呼叫（`v1.5.0` 起）
+
+rubric 適合放幾條「會被違反的禁區」。要讓它對照一整份規範檔，用 `repo-rules-path`：
+
+```yaml
+  post:
+    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
+    with:
+      repo-rules-path: .github/review-rules.md
+    secrets:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
+```
+
+設了之後每個 PR 多一次 API 呼叫：一般 review 完全不動，另外一次把規範接在 diff 後面，只留下標了
+規範編號（`[R03]`）的 finding，跟一般 review 合併貼出。沒標編號的丟掉，那些多半是一般 review 已經在報的
+程式問題。
+
+為什麼不直接塞進 rubric：2026-09-26 在 Qodo PR-Review-Bench 上量過，整份規範放進同一次呼叫，功能缺陷的
+recall 會掉；分開呼叫、只留標了編號的，違反規則的抓得多、功能缺陷不變
+（[實測紀錄](experiments/2026-09-26-rules-loop.md)）。那組違規是刻意注入的，真實 repo 裡的違規少很多，
+那個準度帶不走。
+
+規範檔的格式刻意簡單，不去理解自由文字：
+
+- 第 0 欄的 `- `（或 `* `）各算一條；後面縮排的行是它的續行
+- 條目在某個 `## ` 節裡的話，節標題會當分組標籤一起送
+- 沒有任何條目的 `## ` 節，整節算一條
+- 其他都不送：`# ` 大標、節外的散文、有條目的節裡不是條目的散文
+- 要 1–99 條；0 條或超過 99 條就整個跳過，印一行 warning
+
+```markdown
+## Python
+- 不要用 print，用 logger
+- 例外要帶 context
+## API 回應
+回應欄位一律用 camelCase，既有的 snake_case 欄位不要改。
+```
+
+這份會切成三條：「（Python）不要用 print，用 logger」、「（Python）例外要帶 context」、「API 回應」（整節）。
+`AGENTS.md` 這類寫給 agent 的檔案通常混著安裝步驟、指令說明，直接指過去會切出一堆不是規則的「規則」，
+建議另外整理一份。本 repo 自己的在 `.github/review-rules.md`。
+
+⚠️ **規範檔的條目會送給 DeepSeek**，跟 diff 一樣在禁用詞掃描的範圍內。檔案取自 default branch
+（跟自訂 rubric 一樣），不是 PR 的 head，所以 PR 改不了它。
+
+其他要知道的：
+
+- 規範那次失敗（API 錯、逾時、解析失敗、規範檔格式不對）不會擋一般 review，摘要會註明。它的最壞耗時
+  壓在約 4 分鐘內
+- 規範那次的 finding 落在一般 finding 的同檔 ±3 行內，兩則會併成一則留言；只有過得了行內門檻
+  （信心、嚴重度）的才會貼或併，其餘列在摘要的「違反 repo 規範」那一段
+- 冪等照舊只看 `(path, line)`：第二次 push 時，規範 finding 若落在上一輪已經留過言的那一行，
+  只會出現在摘要
+- 本機的 `review-local.sh` 只跑一般那次
+- 費用：到 diff 為止的前綴跟一般那次相同，吃得到快取；多出來的主要是規範本身與輸出
+
 ---
 
 ## 其他可調的地方
@@ -422,6 +479,7 @@ The nested job 'review' is requesting 'actions: read, pull-requests: write', but
 | `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline。內建 rubric 會直接告訴模型「0.7 以上貼成行內留言」，改了這個值，rubric 那句不會跟著變 |
 | `max-inline` | `8` | 其餘降級進摘要 |
 | `typed-rules` | `true` | 依 diff 涵蓋的檔案型態附加補充規則（目前有 GitHub workflow、Python 兩份）。**不增加 API 呼叫次數** |
+| `repo-rules-path` | `''` | 規範檔路徑（`v1.5.0` 起）。設了才開：每個 PR 多一次 API 呼叫，規範的條目會送給 DeepSeek。見上面「客製」一節 |
 
 ### 曾經有一層「自動過濾誤報」，實測後移除了
 

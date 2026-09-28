@@ -11,6 +11,18 @@
 
 ## [Unreleased]
 
+### Docs
+
+- `repo-rules-path` 的說明等 `v1` 移到 `v1.5.0` 之後才補：USAGE「客製」加一節（格式、送出什麼、
+  失敗隔離、合併、冪等的已知語意、`AGENTS.md` 為什麼不建議直接指過去），參數表加一列；README §2 步驟 5
+  與 §5「第三個方向」補上這個選項；rules-loop 實驗頁的「因此改了什麼」從「kit 目前沒改」改成
+  `v1.5.0` 起的做法。提早寫的話，`@v1` 還停在 `v1.4.1` 的期間照做的 caller 會 startup_failure。
+- README §7 疑難排解「caller 新傳一個 secret」那列擴成「secret 或 input」，並更正最後一句：原本寫
+  「或把 caller 的 `kit-ref` 釘到含該 secret 的版本」，但 `kit-ref` 只決定執行時 checkout 哪一版腳本，
+  認不認得這個 secret 或 input 看的是 `uses:` 那一版，要釘的是 `uses:`（`kit-ref` 一起）。
+- 本 repo 的 `04` 開了 `repo-rules-path`（`.github/review-rules.md`，本 repo 自己的規範 11 條），
+  長期 dogfood 這個功能；README §1 檔案總覽補上這個檔。
+
 ## [1.5.0] - 2026-09-28
 
 > **minor**：新增一個 opt-in 的 input（`repo-rules-path`），介面只加不減。沒設的 caller 不用改任何東西，
