@@ -11,8 +11,28 @@
 
 ## [Unreleased]
 
+### Changed
+
+- ⚠️ **AI review 預設只貼一則摘要，不再貼行內留言**（`reusable-ai-review-post.yml`）。引用 `@v1` 的 repo
+  下次跑就會看到這個變化，不必改任何東西，也不會失敗。所有 finding 仍然都在摘要的 Findings 表裡，位置照舊
+  由程式用片段比對定好。要回到以前的行為，caller 加 `inline-comments: true`（要等 `v1` 移到含這個 input
+  的版本之後才能加，提早加會 startup_failure）。
+  原因：這個工具只當粗篩、每一筆都要驗證，行內留言卻會讓每一則讀起來都像待辦；而信心門檻分不太開對錯——
+  1.4.0 那次量到，在 0.7 門檻下不成立的 finding 仍有 71% 會被貼成行內留言（成立的是 95%，合成標的）。
+  本 repo 真實 PR 上的成立情況見 README §4.8。
+  `min-severity`／`min-confidence`／`max-inline` 只在 `inline-comments: true` 時有作用。內建 rubric 仍然寫著
+  「0.7 以上貼成行內留言」：rubric 沒改（改 rubric 等於換一份沒量過的 prompt），在預設模式下這句不再照字面發生。
+
 ### Added
 
+- `reusable-ai-review-post.yml` 新增 input `inline-comments`（boolean，預設 `false`）；`post_review.py` 新增
+  `--no-inline`：不附「未張貼為 inline」段、不查既有留言、不貼行內，定位、門檻與 `--request-changes-on-blocker`
+  的判斷照舊。**直接呼叫 `post_review.py` 時預設照舊貼行內**（沒帶 `--no-inline` 的輸出跟之前逐字相同，
+  selftest [21] 的 golden 照舊通過）。
+- `tools/selftest.py` 從 21 組 162 項增加到 **22 組 171 項**。新增的一組確認 `--no-inline` 時摘要就是
+  `review.md` 原文、待貼清單是空的、有規範檔時規範段照附；並把 `gh` 換成紀錄器，實際走到貼文那段，確認
+  只呼叫一次 `gh pr review`、沒有任何 `gh api`，blocker 照樣觸發 `--request-changes`（對照組不帶旗標時會
+  查既有留言並貼行內）。新測項在改動前的 `post_review.py` 上 8 項失敗、對照組照樣通過。
 - 本 repo 的 CI 多一支 `kit-selftest.yml`：每個 PR 與 main 上的每個 commit 都跑 `tools/selftest.py`，
   接著用 ruff 做基本 lint（只選 `E4`／`E7`／`E9`／`F`＝語法錯、未定義名稱、沒用到的 import；`--isolated`
   不讀設定檔，版本釘 `0.16.9`）。這支設為 main 的必要檢查；發版 commit 在 main 上這個 check 不是 success，
