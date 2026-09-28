@@ -799,6 +799,14 @@ def main() -> int:
             and parsed_b[2]["rest"] == ["第一行", "```python", "# 這不是標題", "```"],
             parsed_b[2],
         )
+    # PR #47 AI review 第二輪 G1（部分成立）：條目那一行直接開 code block 時，開頭沒被當成 fence，
+    # 結尾那行 ``` 反而被當成「開」，後面的條目全被吞進第一條
+    inline_fence = "- ```python\n  print(\"hello\")\n  ```\n- 下一條\n- 再下一條\n"
+    check(
+        "條目那一行就開 code block（`- ```python`）：結尾的 ``` 是收尾，後面的條目照樣切開",
+        [r["head"] for r in reviewer.parse_repo_rules(inline_fence)] == ["```python", "下一條", "再下一條"],
+        [(r["head"], r["rest"]) for r in reviewer.parse_repo_rules(inline_fence)],
+    )
     check("整份都是散文：0 條", reviewer.parse_repo_rules("# 標題\n只有散文\n") == [])
     check("`*` 也算條目", [r["head"] for r in reviewer.parse_repo_rules("* 星號條目\n")] == ["星號條目"])
 

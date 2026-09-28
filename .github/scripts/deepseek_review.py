@@ -279,6 +279,11 @@ def parse_repo_rules(text: str) -> list[dict]:
             if label is not None:
                 section_items += 1
             item = {"kind": "item", "label": label, "head": bullet.group(1).strip(), "rest": []}
+            # 條目那一行就開了 code block（`- ```python`）：後面那行 ``` 是收尾，不是另開一段。
+            # 沒有這段的話 fence 狀態會錯開一格，後面的條目全被吞進這一條（PR #47 AI review 第二輪）
+            inline_fence = _RULES_FENCE.match(item["head"])
+            if inline_fence:
+                fence = (inline_fence.group(1), "item")
             continue
         if item is not None:
             if not line.strip() or line[:1] in (" ", "\t"):
