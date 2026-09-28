@@ -861,7 +861,7 @@ def main() -> int:
                 pos_typed = rules_user.find("## 這次改動涉及的檔案型態")
                 check("順序：diff → repo 規範 → 補充規則（同 v01）", 0 < pos_diff < pos_rules < pos_typed, (pos_diff, pos_rules, pos_typed))
                 common = os.path.commonprefix([normal_user, rules_user])
-                # meta 與 diff 各一對 ``` ：到 diff 收尾為止兩次逐字相同，才吃得到 context caching
+                # meta 與 diff 各一對 ``` ：到 diff 收尾為止兩次逐字相同（命中快取的前提，不保證命中）
                 check("到 diff 收尾為止兩次呼叫逐字相同", common.count("```") >= 4 and "value = compute()" in common, common[-80:])
             kept = json.loads((tdp / "r.json").read_text(encoding="utf-8"))
             check(
