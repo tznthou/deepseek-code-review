@@ -23,9 +23,11 @@
 - 本 repo 的 `04` 開了 `repo-rules-path`（`.github/review-rules.md`，本 repo 自己的規範 11 條），
   長期 dogfood 這個功能；README §1 檔案總覽補上這個檔。
 - 更正 `v1.5.0` 程式註解裡「規範那次吃得到 context caching」的說法：到 diff 為止的前綴確實跟一般那次
-  逐字相同，但 2026-09-28 本 repo 第一次真跑，規範那次的 7,583 個 prompt token 只有 1,536 個命中快取
-  （兩次呼叫只隔幾秒，原因沒查），那次的費用大約是一般那次的 0.85 倍。改的是 workflow 與
-  `deepseek_review.py` 的註解，行為沒變。
+  逐字相同，但 2026-09-28 本 repo 真跑兩次，規範那次都只有 1,536 個 prompt token 命中快取（分別是
+  7,583 與 9,362 個裡；兩次呼叫只隔幾秒，原因沒查），第一次的費用大約是一般那次的 0.85 倍。改的是
+  workflow 與 `deepseek_review.py` 的註解，行為沒變。
+- README §7 那列「`kit-ref` 一起」與「光改 `kit-ref` 救不了」寫清楚各自的角色：釘 `uses:` 才是解法，
+  `kit-ref` 是照慣例一起設（這個 PR 的 AI review 把兩句讀成互相矛盾）。
 
 ## [1.5.0] - 2026-09-28
 
