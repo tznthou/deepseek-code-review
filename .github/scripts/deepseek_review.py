@@ -7,6 +7,8 @@
   --diff         unified diff 檔（`git diff base...head`）
   --meta         PR metadata JSON（可選）
   --rubric       review playbook / system prompt（預設 prompts/review-rubric.md）
+  --repo-rules   repo 規範檔（可選）。給了就是「規範那次呼叫」：規範接在 diff 後面，
+                 輸出只留標了有效規範編號（`[R03]`）的 finding。格式見 parse_repo_rules
 
 輸出：
   --out          Markdown review 內文（貼 PR 留言用）
@@ -30,6 +32,7 @@ import json
 import os
 import re
 import sys
+import textwrap
 import time
 import urllib.error
 import urllib.request
@@ -68,6 +71,23 @@ USER_TEMPLATE = """請審查以下 Pull Request。
 {diff}
 ```
 """
+
+# repo 規範那次呼叫的呈現，逐字沿用 rules-loop 實驗的 v01（開頭說明、清單格式、接在 diff 後面、
+# 要求標編號那句）。那一版在 Qodo PR-Review-Bench 的 holdout 上盲標驗過：另外用一次呼叫、
+# 只留標了編號的 finding，規則類抓得多、功能性不變。改一個字就等於換了一個沒量過的 prompt。
+REPO_RULES_HEADER = (
+    "## 這個 repo 的規範\n\n以下是這個 repo 自己訂的規範，和上面的通用要求一起適用於這次改動。"
+)
+REPO_RULES_CITE = (
+    "如果某個 finding 是違反上面的某一條規範，請在它的 `title` 開頭標出規範編號，"
+    "例如 `[R03] …`；一個 finding 只標一條。"
+)
+# 編號固定兩位數（R01–R99），過濾用的 CITE_RE 也只認兩位數；超過就對不上編號。
+MAX_REPO_RULES = 99
+CITE_RE = re.compile(r"[\[(（【]\s*R(\d{2})\s*[\])）】]")
+_RULES_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+_RULES_ITEM = re.compile(r"^[-*]\s+(\S.*)$")
+_RULES_FENCE = re.compile(r"^\s*(```|~~~)")
 
 
 def log(msg: str) -> None:
@@ -116,6 +136,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="分型別補充規則的目錄（prompts/rules）。留空則只用 rubric",
     )
+    p.add_argument(
+        "--repo-rules",
+        default=None,
+        help="repo 規範檔。給了就是規範那次呼叫：只輸出標了有效規範編號的 finding",
+    )
     return p.parse_args()
 
 
@@ -163,6 +188,126 @@ def load_text(path: str | None) -> str:
         return ""
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         return fh.read()
+
+
+def _trim_block(lines: list[str]) -> list[str]:
+    """去掉頭尾空行與共同縮排。"""
+    text = textwrap.dedent("\n".join(lines)).strip("\n")
+    return text.splitlines() if text.strip() else []
+
+
+def parse_repo_rules(text: str) -> list[dict]:
+    """把規範檔切成一條一條。刻意只認簡單格式，不去理解自由文字：
+
+      * 第 0 欄以 `- `／`* ` 開頭的行各算一條；後面縮排的行是它的續行
+        （空行不中斷，下一個非空行沒縮排才結束）
+      * 條目在某個 `## ` 節裡 → 節標題當分組標籤一起送
+      * 沒有任何條目的 `## ` 節，整節算一條（標題＋內文）
+      * 其他都不送：`# ` 大標、節外的散文、有條目的節裡不是條目的散文；`###` 以下當一般文字行
+      * fenced code block 裡的行不當結構解析（裡面的 `# 註解` 不會被當成標題）
+
+    `##` 節裡又有條目時，只有條目算：節整節算一條的話，「分類＋條目」這種常見寫法會整節變成
+    一條，模型標 `[R03]` 時分不出違反的是哪一條（子超 2026-09-28 裁定）。
+
+    回傳 [{"kind": "item"|"section", "label": 節標題或 None, "head": 第一行, "rest": 續行}]。
+    """
+    rules: list[dict] = []
+    label: str | None = None  # 目前所在 `## ` 節的標題
+    section_lines: list[str] = []  # 這一節裡不屬於任何條目的行
+    section_items = 0
+    item: dict | None = None  # 正在收續行的條目
+    fence: tuple[str, str | None] | None = None  # (標記, 這段 code 歸誰："item"／"section"／None)
+
+    def close_item() -> None:
+        nonlocal item
+        if item is not None:
+            item["rest"] = _trim_block(item["rest"])
+            rules.append(item)
+            item = None
+
+    def close_section() -> None:
+        nonlocal label, section_lines, section_items
+        close_item()
+        if label is not None and section_items == 0:
+            rules.append({"kind": "section", "label": None, "head": label, "rest": _trim_block(section_lines)})
+        label, section_lines, section_items = None, [], 0
+
+    def attach(line: str, target: str | None) -> None:
+        if target == "item" and item is not None:
+            item["rest"].append(line)
+        elif target == "section":
+            section_lines.append(line)
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if fence is not None:
+            attach(line, fence[1])
+            if line.strip().startswith(fence[0]):
+                fence = None
+            continue
+        opened = _RULES_FENCE.match(line)
+        if opened:
+            if item is not None and line[:1] in (" ", "\t"):
+                target: str | None = "item"
+            else:
+                close_item()
+                target = "section" if label is not None else None
+            fence = (opened.group(1), target)
+            attach(line, target)
+            continue
+        heading = _RULES_HEADING.match(line)
+        if heading and len(heading.group(1)) <= 2:
+            close_section()
+            if len(heading.group(1)) == 2 and heading.group(2):
+                label = heading.group(2)
+            continue
+        bullet = _RULES_ITEM.match(line)
+        if bullet:
+            close_item()
+            if label is not None:
+                section_items += 1
+            item = {"kind": "item", "label": label, "head": bullet.group(1).strip(), "rest": []}
+            continue
+        if item is not None:
+            if not line.strip() or line[:1] in (" ", "\t"):
+                item["rest"].append(line)
+                continue
+            close_item()
+        if label is not None:
+            section_lines.append(line)
+    close_section()
+    return rules
+
+
+def render_repo_rules(rules: list[dict]) -> tuple[str, dict[str, str]]:
+    """回傳 (接在 diff 後面的整段文字, {規範編號: 這條的第一行})。編號照檔案裡的順序。"""
+    ids: dict[str, str] = {}
+    parts = [REPO_RULES_HEADER, ""]
+    for number, rule in enumerate(rules, start=1):
+        rid = f"R{number:02d}"
+        if rule["kind"] == "section":
+            head, summary = f"**{rule['head']}**", rule["head"]
+        else:
+            tag = f"（{rule['label']}）" if rule["label"] else ""
+            head = summary = tag + rule["head"]
+        parts.append(f"- [{rid}] {head}")
+        parts += [f"  {line}" if line.strip() else "" for line in rule["rest"]]
+        ids[rid] = summary
+    parts += ["", REPO_RULES_CITE]
+    return "\n".join(parts).strip() + "\n", ids
+
+
+def cited_rule(finding: dict, ids: dict[str, str]) -> str | None:
+    """finding 標的規範編號，要是 ids 裡有的才算；沒有就回 None。
+
+    跟實驗計分的判法一致：title 有標就只看 title（標了不存在的編號，不會退去 body 找），
+    title 沒標才看 body。
+    """
+    found = CITE_RE.findall(finding.get("title", "")) or CITE_RE.findall(finding.get("body", ""))
+    for number in found:
+        if f"R{number}" in ids:
+            return f"R{number}"
+    return None
 
 
 def truncate(diff: str, limit: int) -> tuple[str, bool]:
@@ -549,6 +694,24 @@ def main() -> int:
         diff=diff,
     )
 
+    # repo 規範接在 diff 後面、補充規則前面（同實驗 v01 的順序）。到 diff 為止跟一般那次
+    # 呼叫逐字相同，吃得到 context caching。
+    rule_ids: dict[str, str] = {}
+    if args.repo_rules:
+        if not os.path.exists(args.repo_rules):
+            log(f"::warning::找不到規範檔 {args.repo_rules}，這次不跑規範那次呼叫")
+            return 1
+        rules = parse_repo_rules(load_text(args.repo_rules))
+        if not 1 <= len(rules) <= MAX_REPO_RULES:
+            log(
+                f"::warning::規範檔 {args.repo_rules} 解析出 {len(rules)} 條（要 1–{MAX_REPO_RULES} 條），"
+                "這次不跑規範那次呼叫。格式：每個 `- ` 條目算一條，沒有條目的 `## ` 節整節算一條"
+            )
+            return 1
+        block, rule_ids = render_repo_rules(rules)
+        user_prompt = user_prompt.rstrip("\n") + "\n\n" + block
+        log(f"[info] repo 規範：{len(rule_ids)} 條、{len(block)} 字元")
+
     # 補充規則接在 diff 後面。放 user message 不放 system prompt：後者要逐字不變
     # 才命中得到 context caching，而這段會隨 diff 的檔案型態變動。
     extra_rules, used_rules = select_rules(raw_diff, args.rules_dir)
@@ -570,11 +733,13 @@ def main() -> int:
             f"{MIN_BLOCKED_TERM_LEN} 個字元，已忽略（太短會擋下一切）"
         )
     if blocked_terms:
+        user_section = (
+            "user message（metadata + diff + repo 規範 + 補充規則）"
+            if rule_ids
+            else "user message（metadata + diff + 補充規則）"
+        )
         hits = blocked_terms_hits(
-            {
-                "system prompt（rubric）": system_prompt,
-                "user message（metadata + diff + 補充規則）": user_prompt,
-            },
+            {"system prompt（rubric）": system_prompt, user_section: user_prompt},
             blocked_terms,
         )
         if hits:
@@ -638,6 +803,21 @@ def main() -> int:
         log(f"[error] 無法解析模型輸出：{err}\n--- 原始輸出 ---\n{diagnostic_excerpt(content)}")
         return 2
 
+    # 規範那次呼叫只留標了有效編號的 finding：沒標的多半是一般 review 已經在報的程式問題。
+    # 過濾放在 normalize（取前 10 筆）之後，順序跟實驗一樣。
+    returned = len(result["findings"])
+    if rule_ids:
+        kept = []
+        for finding in result["findings"]:
+            rid = cited_rule(finding, rule_ids)
+            if rid:
+                finding["rule"] = rid
+                text = rule_ids[rid]
+                finding["rule_text"] = text if len(text) <= 100 else text[:100].rstrip() + "…"
+                kept.append(finding)
+        result["findings"] = kept
+        log(f"[info] 規範那次呼叫：規範 {len(rule_ids)} 條；模型回 {returned} 筆，標了有效編號 {len(kept)} 筆")
+
     # 定位要在產出 review.md **之前**做：摘要表格裡的 `path:line` 與稍後貼出去的
     # inline comment 必須指同一個位置。先前把定位放在下游的 post_review，結果是
     # inline 貼在修正後的行、摘要卻還印著模型原本報的行號。
@@ -667,11 +847,19 @@ def main() -> int:
     with open(args.findings_out, "w", encoding="utf-8") as fh:
         json.dump(result["findings"], fh, ensure_ascii=False, indent=2)
 
-    # 給 CI 用的簡易 summary（GitHub Step Summary 會讀這個檔）
+    # 給 CI 用的簡易 summary（GitHub Step Summary 會讀這個檔）。規範那次呼叫只寫一行統計：
+    # 完整的 review.md 是模型對「規範那次」自己寫的結論，印進 job summary 會變成第二份
+    # 「DeepSeek Code Review」，跟一般那次互相打架。
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as fh:
-            fh.write(render_markdown(result, meta, args.model, usage, truncated) + "\n")
+            if rule_ids:
+                fh.write(
+                    f"### repo 規範那次呼叫\n\n規範 {len(rule_ids)} 條；模型回 {returned} 筆，"
+                    f"標了有效規範編號 {len(result['findings'])} 筆（貼在 PR 的 review 裡）。\n"
+                )
+            else:
+                fh.write(render_markdown(result, meta, args.model, usage, truncated) + "\n")
 
     return 0
 

@@ -23,6 +23,9 @@
 #                          同樣不要用 `export ...=值` 的寫法寫進 history。
 #
 # 產出：/tmp/deepseek-review.md（人看）與 /tmp/deepseek-findings.json（機器看）
+#
+# 只跑一般那次呼叫。CI 設了 `repo-rules-path` 時多出來的「repo 規範那次呼叫」這裡不跑，
+# 所以本機看到的 finding 會比 CI 少那一段（要單獨試，直接給 deepseek_review.py 加 --repo-rules）。
 
 set -euo pipefail
 
