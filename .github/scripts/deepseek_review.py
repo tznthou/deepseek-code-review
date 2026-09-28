@@ -711,8 +711,10 @@ def main() -> int:
         diff=diff,
     )
 
-    # repo 規範接在 diff 後面、補充規則前面（同實驗 v01 的順序）。到 diff 為止跟一般那次
-    # 呼叫逐字相同（命中 context caching 的前提；2026-09-28 實測兩次只隔幾秒時幾乎沒有命中）。
+    # repo 規範接在 diff 後面、補充規則前面（同實驗 v01 的順序）。到 diff 為止跟一般那次逐字相同，
+    # 但一般那次在 diff 後面接了補充規則時，兩次呼叫就從那裡分岔，規範那次只命中 system prompt 那段的
+    # 快取；一般那次整段是這次的前綴（沒有補充規則）才整段命中。2026-09-28 實測：跟長度無關，隔 15 秒也一樣。
+    # 把規範移到補充規則後面，一般那次就成了完整前綴，但那會動到上面說的 v01 順序（沒量過的 prompt）。
     rule_ids: dict[str, str] = {}
     if args.repo_rules:
         if not os.path.exists(args.repo_rules):

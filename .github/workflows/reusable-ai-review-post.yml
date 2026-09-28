@@ -222,9 +222,9 @@ jobs:
           python3 .kit/.github/scripts/deepseek_review.py "${ARGS[@]}"
 
       # repo 規範那次呼叫（caller 設了 repo-rules-path 才跑）。跟一般那次分開：同一次呼叫附整份
-      # 規範，功能缺陷的 recall 會掉（experiments/2026-09-26-rules-loop.md）。排在一般那次之後，
-      # 到 diff 為止的前綴逐字相同（命中 context caching 的前提）；但 2026-09-28 實測兩次只隔幾秒，
-      # 規範那次幾乎沒有命中快取，原因沒查。
+      # 規範，功能缺陷的 recall 會掉（experiments/2026-09-26-rules-loop.md）。到 diff 為止的前綴跟
+      # 一般那次逐字相同，但 PR 套到補充規則（typed-rules）時，一般那次在 diff 後面多接了補充規則，
+      # 兩次呼叫從那裡分岔，規範那次只命中 system prompt 那段的快取；沒套到才整段命中（2026-09-28 實測）。
       # 失敗要隔離：continue-on-error 讓一般 review 照貼；--timeout／--retries 和 timeout-minutes
       # 把最壞耗時壓在幾分鐘內——預設參數最壞要 20 分鐘，會把 job 的額度吃光，連一般 review 都貼不出來。
       # env 要跟一般那步一樣：secret 得逐步傳，漏了 REVIEW_BLOCKED_TERMS 規範那次就會安靜地不掃。
