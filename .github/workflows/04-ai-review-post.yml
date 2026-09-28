@@ -39,7 +39,13 @@ permissions:
 
 jobs:
   post:
-    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
+    # ⚠️ 暫釘 v1.5.0（kit-ref 一起）：v1 移動之前，先用真 API 驗一次 repo 規範那次呼叫
+    #    （兩段式發版）。驗完改回 @v1，repo-rules-path 留著——本 repo 長期 dogfood 這個功能。
+    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1.5.0
+    with:
+      kit-ref: v1.5.0
+      # 本 repo 自己的規範檔：每個 PR 多一次呼叫，只留標了規範編號的 finding
+      repo-rules-path: .github/review-rules.md
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
