@@ -494,6 +494,11 @@ workflow 的建議做法）。⚠️ **`reusable-ai-review-post.yml` 與 `reusab
   目前沒有依作者跳過的選項（draft PR 預設會跳過：`skip-draft` 預設 `true`）。
 * **大 PR 只審前 400 KB。** diff 超過 `max-diff-bytes`（預設 400000）時會在檔案邊界截斷，
   截斷點之後的檔案不會被審（見上面「其他可調的地方」）。
+* **不會幫你挑哪些檔案送出去。** 想讓純文件 PR 不跑，可以在 `ai-review-collect.yml` 的
+  `pull_request` 底下加 `paths-ignore`（例如 `['**/*.md', 'docs/**']`）。但它只決定這次跑不跑：
+  PR 裡只要有一個檔案不在忽略清單內，整個 PR 照樣觸發（[GitHub 文件](https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions)：
+  「If any path names do not match patterns in `paths-ignore` … the workflow will run」），
+  而且送出去的是整份 diff，被忽略的那些檔案也在裡面。目前沒有「送出前排除某些路徑」的設定。
 * **fork PR 的隔離路徑只驗過兩條。** 2026-09-21 實測通過的是「PR 改不動受信任段」
   與「artifact 內容不被採信」——那兩條不分 fork 還是同 repo 分支，行為相同（見 README §5）。
   **還沒驗的是 fork 專屬的部分**：外部貢獻者的核可政策實際跑起來長什麼樣。
