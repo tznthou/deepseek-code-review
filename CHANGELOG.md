@@ -29,6 +29,11 @@
   workflow 與 `deepseek_review.py` 的註解，行為沒變。
 - README §7 那列「`kit-ref` 一起」與「光改 `kit-ref` 救不了」寫清楚各自的角色：釘 `uses:` 才是解法，
   `kit-ref` 是照慣例一起設（這個 PR 的 AI review 把兩句讀成互相矛盾）。
+- 本 repo 規範檔的 R01（外部 action 釘 SHA）收窄成「第三方 action（`uses:` 指到別的 repo）」，並寫明
+  本 repo 自己的 reusable workflow 用 tag 引用是刻意的、不在此限。#49 的 AI review 把原本的寫法套到
+  `uses: …/reusable-ai-review-post.yml@v1.5.0`（那個 PR 的 diff 正好帶著新加的規範檔）；發版驗證期間
+  `04` 暫釘 `@v1.x.y`、再改回 `@v1` 的 PR 都會帶到這行（v1.5.0 的 #49／#50）。範圍現在跟 selftest [18]
+  一致（它本來就只檢查 action），其他 10 條不變。
 
 ## [1.5.0] - 2026-09-28
 
