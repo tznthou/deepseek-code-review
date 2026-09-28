@@ -11,6 +11,12 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-28
+
+> **minor，但預設行為有變**：AI review 預設只貼一則摘要，不再貼行內留言（新 input `inline-comments`，
+> 預設 `false`）。介面只加不減、不會 startup_failure；引用 `@v1` 的 repo 會自動拿到新版，下次跑就只看到摘要。
+> 要回到以前的行為，在 `reusable-ai-review-post.yml` 的 caller 加上 `inline-comments: true`（說明見 USAGE）。
+
 ### Changed
 
 - ⚠️ **AI review 預設只貼一則摘要，不再貼行內留言**（`reusable-ai-review-post.yml`）。引用 `@v1` 的 repo
@@ -545,7 +551,8 @@
   方式導入，不必複製腳本也不必複製 rubric。
 - `USAGE.md`：三步驟導入說明與可直接複製的 caller 範本。
 
-[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.1...v1.4.0
