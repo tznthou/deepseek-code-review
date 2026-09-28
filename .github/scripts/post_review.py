@@ -359,7 +359,7 @@ def main() -> int:
         print(json.dumps(selected, ensure_ascii=False, indent=2))
         return 0
 
-    # 1) 摘要留言（冪等：編輯自己上一則，沒有就新建）
+    # 1) 摘要留言：每次執行都新建一則 review（冪等只做在下面的 inline comment）
     with open("/tmp/deepseek-review-body.md", "w", encoding="utf-8") as fh:
         fh.write(review_body)
 
