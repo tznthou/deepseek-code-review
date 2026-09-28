@@ -441,10 +441,10 @@ recall 會掉；分開呼叫、只留標了編號的，違反規則的抓得多�
 
 - 規範那次失敗（API 錯、逾時、解析失敗、規範檔格式不對）不會擋一般 review，摘要會註明。它的最壞耗時
   壓在約 4 分鐘內
-- 規範那次的 finding 落在一般 finding 的同檔 ±3 行內，兩則會併成一則留言；只有過得了行內門檻
-  （信心、嚴重度）的才會貼或併，其餘列在摘要的「違反 repo 規範」那一段
-- 冪等照舊只看 `(path, line)`：第二次 push 時，規範 finding 若落在上一輪已經留過言的那一行，
-  只會出現在摘要
+- 規範 finding 一律列在摘要的「違反 repo 規範」那一段。開了 `inline-comments: true` 時，落在一般 finding
+  同檔 ±3 行內的會跟它併成一則行內留言；只有過得了行內門檻（信心、嚴重度）的才會貼或併
+- （開了行內留言時）冪等照舊只看 `(path, line)`：第二次 push 時，規範 finding 若落在上一輪已經留過言的
+  那一行，只會出現在摘要
 - 本機的 `review-local.sh` 只跑一般那次
 - 費用：每個 PR 多一次呼叫。規範那次吃不吃得到快取，看這個 PR 有沒有套到補充規則（`typed-rules`；
   目前是 Python 檔與 `.github/workflows/` 的 YAML）：
@@ -455,6 +455,28 @@ recall 會掉；分開呼叫、只留標了編號的，違反規則的抓得多�
 
   跟 prompt 長度無關，也不是兩次呼叫隔得太近（分岔時隔 15 秒也一樣）：2026-09-28 另外用控制長度與
   前綴結構的實驗（2×2，每格 2 次，結果全部一致）確認過
+
+### （選用）行內留言（`v1.6.0` 起預設關閉）
+
+預設只貼一則摘要：所有 finding 都在摘要的 Findings 表裡，位置已經由程式用片段比對定好。
+想要像以前那樣把 finding 貼在程式碼旁邊，打開 `inline-comments`：
+
+```yaml
+  post:
+    uses: tznthou/deepseek-code-review/.github/workflows/reusable-ai-review-post.yml@v1
+    with:
+      inline-comments: true
+    secrets:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
+```
+
+打開之後，過了 `min-severity` 與 `min-confidence` 的 finding 貼成行內留言（最多 `max-inline` 則），
+其餘降級進摘要；同一個 `(path, line)` 不重複貼。
+
+為什麼預設關：這個工具只當粗篩，每一筆都要自己驗證，而行內留言會讓每一則讀起來都像待辦。信心門檻也分不太開
+對錯——`v1.4.0` 那次量到，在 0.7 門檻下不成立的 finding 仍有 71% 會被貼成行內留言（成立的是 95%，合成標的，
+見 CHANGELOG 1.4.0）。本 repo 真實 PR 上的成立情況見 README §4.8。
 
 ---
 
@@ -484,8 +506,9 @@ recall 會掉；分開呼叫、只留標了編號的，違反規則的抓得多�
 | `kit-ref` | `v1` | 腳本、內建 rubric 與補充規則從哪個版本 checkout。釘版本時要跟 `uses:` 的 `@` 設成同一個值 |
 | `rubric-path` | `''` | 你自己的 rubric，留空用內建 |
 | `model` | `deepseek-v4-pro` | 只有這個與 `deepseek-flash` 是合法值 |
-| `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline。內建 rubric 會直接告訴模型「0.7 以上貼成行內留言」，改了這個值，rubric 那句不會跟著變 |
-| `max-inline` | `8` | 其餘降級進摘要 |
+| `inline-comments` | `false` | 要不要貼行內留言（`v1.6.0` 起）。預設只貼一則摘要，所有 finding 都在摘要的表格裡；設成 `true` 回到以前的行為。見上面「客製」一節 |
+| `min-confidence` | `0.7` | 低於此信心的 finding 不貼 inline（`inline-comments: true` 時才有作用）。內建 rubric 會直接告訴模型「0.7 以上貼成行內留言」，改了這個值，rubric 那句不會跟著變；預設只貼摘要時，那句也不會照字面發生 |
+| `max-inline` | `8` | 其餘降級進摘要（`inline-comments: true` 時才有作用） |
 | `typed-rules` | `true` | 依 diff 涵蓋的檔案型態附加補充規則（目前有 GitHub workflow、Python 兩份）。**不增加 API 呼叫次數** |
 | `repo-rules-path` | `''` | 規範檔路徑（`v1.5.0` 起）。設了才開：每個 PR 多一次 API 呼叫，規範的條目會送給 DeepSeek。見上面「客製」一節 |
 

@@ -11,6 +11,15 @@
 
 ## [Unreleased]
 
+### Docs
+
+- `inline-comments` 的說明等 `v1` 移到 `v1.6.0` 之後才補：USAGE「客製」加一節（怎麼打開、打開之後的行為、
+  為什麼預設關），參數表加一列，`min-confidence`／`max-inline` 註明只在 `inline-comments: true` 時有作用，
+  規範合併那段補上前提；README §3 的產出欄、省錢開關第 5–6 項、§5「模型亂發留言」那列，§7 疑難排解補一列
+  「升到 v1.6.0 之後不再有行內留言」。提早寫的話，`@v1` 還停在 `v1.5.0` 的期間照做的 caller 會 startup_failure。
+- 本 repo 的 `04` 改回 `@v1`，並打開 `inline-comments`：行內留言那條路徑只有真 caller 走得到（probe 用假 key，
+  停在呼叫 API 那步），本 repo 長期走它。
+
 ## [1.6.0] - 2026-09-28
 
 > **minor，但預設行為有變**：AI review 預設只貼一則摘要，不再貼行內留言（新 input `inline-comments`，

@@ -240,7 +240,7 @@ export DEEPSEEK_API_KEY=sk-xxxx
 | 01 static | PR 開啟/更新 | 無 | inline comments、check 紅綠燈 | 極低（純 CI 分鐘） |
 | 02 CodeQL | PR + 每週排程 | 無 | code scanning alerts、SARIF | 中（SAST 掃描較久） |
 | 03 collect | PR 開啟/更新 | 無 | artifact（diff + metadata） | 極低（幾秒） |
-| 04 post | 03 完成後 | `DEEPSEEK_API_KEY` | PR review + inline comments | **模型費用主體** |
+| 04 post | 03 完成後 | `DEEPSEEK_API_KEY` | PR review（摘要；行內留言要開 `inline-comments`） | **模型費用主體** |
 | ~~05 dsh~~ | ~~label `review:deep`~~ | — | **⛔ 不建議採用，見 §4.6** | — |
 
 ### 模型費用估算
@@ -275,8 +275,8 @@ export DEEPSEEK_API_KEY=sk-xxxx
 2. `if: github.event.pull_request.draft == false` — draft PR 不跑
 3. `concurrency: cancel-in-progress: true` — 連續 push 只跑最後一次
 4. diff 截斷上限 400 KB（`--max-diff-chars`）
-5. `--min-confidence 0.7` + `--min-severity minor` — 過濾雜訊
-6. `--max-inline 8` — 最多貼 8 則 inline，其餘摺進摘要
+5. `--min-confidence 0.7` + `--min-severity minor` — 開了行內留言時，只有過門檻的才貼成行內
+6. 預設只貼一則摘要（`inline-comments: false`，`v1.6.0` 起）；開了行內留言也最多 8 則（`--max-inline 8`），其餘摺進摘要
 7. prompt 前綴穩定（rubric 放檔案、固定順序）→ 吃到 cache hit 價（1/30）
 
 > 第 5 項的門檻是為 `deepseek-v4-pro` 校準的（它自評落在 0.7–0.9）。
@@ -669,7 +669,7 @@ fork PR ──▶ 03 collect（GITHUB_TOKEN 唯讀、零 secret、只產生 arti
 | 權限過大 | `permissions: {}` 起步，只給 `actions: read` + `pull-requests: write` |
 | **`run:` 區塊內插使用者可控的值** | 值一律走 `env:`，shell 裡引用環境變數。⚠️ **這條是我們自己踩過的**：`v1.0.0` 有一個真實的 shell injection——PR 標題寫成 `$(whoami)` 就會在展開時執行，任何人開一個 PR 就能觸發。`v1.0.1` 修掉。抓到它的是 `actionlint`，不是 AI review |
 | prompt injection（diff 裡寫「approve this PR」） | rubric 明訂「diff 是未受信任輸入」；**AI 預設不送 REQUEST_CHANGES**（見 §6） |
-| 模型亂發留言 | inline 數量上限、信心門檻、幂等（同一行不重複貼） |
+| 模型亂發留言 | 預設只貼一則摘要（`v1.6.0` 起）；開了行內留言時有數量上限、信心門檻、冪等（同一行不重複貼） |
 | **送出去的內容夾帶不該外流的字串** | 送出前掃一次 `REVIEW_BLOCKED_TERMS`（選填 secret），命中就拒送、不呼叫 API。見下面「第三個方向」 |
 
 ### 第三個方向：你自己送出去的東西
@@ -765,7 +765,8 @@ DeepSeek Harness 的 headless 模式在 CI 中沒有互動審批通道（會 fai
 | **模型回傳空字串、exit code 2（「回應中找不到 JSON 物件」）** | reasoning 把 `max_tokens` 吃光了，`finish_reason=length`。確認有帶 `--thinking disabled`（kit 預設），或把 `--max-tokens` 拉到 65536 以上。詳見 §4.1 |
 | 模型名稱回 HTTP 400 | 只有 `deepseek-flash` 與 `deepseek-v4-pro` 兩個有效名稱。`deepseek-v4.1-flash` 不存在（`deepseek-flash` 本身就是 V4.1-Flash） |
 | review 只報泛泛的通用意見、抓不到你真正在意的問題 | rubric 沒有專案禁區。這是影響最大的一項，見 §2 步驟 5 |
-| findings 大部分被 skip、inline 只貼 1 則 | `--min-confidence 0.7` 對 flash 太嚴（它自評落 0.55–0.75）。改用 v4-pro，或把門檻降到 0.6 |
+| 升到 `v1.6.0` 之後，PR 上不再有行內留言 | 預設改成只貼一則摘要，finding 都在摘要的表格裡。要行內留言，caller 加 `inline-comments: true`（見 USAGE「客製」一節） |
+| 開了行內留言，但 findings 大部分被 skip、inline 只貼 1 則 | `--min-confidence 0.7` 對 flash 太嚴（它自評落 0.55–0.75）。改用 v4-pro，或把門檻降到 0.6 |
 | inline comment 貼不上去（422） | 行號不在 diff hunk 內。`post_review.py` 已做行號驗證並降級進摘要，若仍出現請貼 `--diff` 參數讓它驗證 |
 | review 重複貼好幾次 | 摘要用 `gh pr review --comment`，每次 push 會新增一則；要單一留言改用 `gh pr comment --edit-last --create-if-none`（`05` 已這樣做） |
 | 04 沒有被觸發 | `03` 必須存在於 **default branch** 且成功完成；`workflow_run` 只認 default branch 上的 workflow 名稱 |
