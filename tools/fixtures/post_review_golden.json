@@ -1,0 +1,140 @@
+{
+ "_note": "由 v1.4.1 的 post_review.py 與 locate.py（git show v1.4.1:…）產生，2026-09-28。不要用新版重產：這份就是「沒設規範檔的 caller 行為不變」的基準。",
+ "diff": "diff --git a/app/handler.py b/app/handler.py\n--- a/app/handler.py\n+++ b/app/handler.py\n@@ -10,5 +10,10 @@ def handle(req):\n     user = req.user\n+    uid = req.args.get(\"id\")\n+    rows = db.execute(\"SELECT * FROM t WHERE id=\" + uid)\n+    print(rows)\n+    print(rows)\n+    return rows\n     return user.name\n \n \n def other():\ndiff --git a/app/util.py b/app/util.py\n--- a/app/util.py\n+++ b/app/util.py\n@@ -1,4 +1,6 @@\n import os\n+import sys\n+DEBUG = os.environ.get(\"DEBUG\")\n \n def helper():\n     return 1\n",
+ "review": "<!-- deepseek-review -->\n## 🤖 DeepSeek Code Review — 💬 有需要留意的問題\n\n固定的摘要內文（golden 用）。\n",
+ "cases": [
+  {
+   "name": "empty",
+   "args": [],
+   "findings": [],
+   "stdout": "<!-- deepseek-review -->\n## 🤖 DeepSeek Code Review — 💬 有需要留意的問題\n\n固定的摘要內文（golden 用）。\n\n[]\n"
+  },
+  {
+   "name": "normal",
+   "args": [],
+   "findings": [
+    {
+     "path": "app/handler.py",
+     "line": 20,
+     "side": "RIGHT",
+     "severity": "blocker",
+     "confidence": 0.9,
+     "title": "SQL 注入",
+     "body": "字串串接組 SQL。",
+     "existing_code": "rows = db.execute(\"SELECT * FROM t WHERE id=\" + uid)",
+     "evidence": ""
+    },
+    {
+     "path": "app/handler.py",
+     "line": 13,
+     "side": "RIGHT",
+     "severity": "minor",
+     "confidence": 0.75,
+     "title": "用 print 除錯",
+     "body": "改用 logger。",
+     "existing_code": "",
+     "evidence": ""
+    },
+    {
+     "path": "app/handler.py",
+     "line": 3,
+     "side": "RIGHT",
+     "severity": "major",
+     "confidence": 0.8,
+     "title": "DEBUG 沒有預設值",
+     "body": "環境變數沒設時是 None。",
+     "existing_code": "DEBUG = os.environ.get(\"DEBUG\")",
+     "evidence": ""
+    }
+   ],
+   "stdout": "<!-- deepseek-review -->\n## 🤖 DeepSeek Code Review — 💬 有需要留意的問題\n\n固定的摘要內文（golden 用）。\n\n[\n  {\n    \"path\": \"app/handler.py\",\n    \"line\": 12,\n    \"side\": \"RIGHT\",\n    \"severity\": \"blocker\",\n    \"confidence\": 0.9,\n    \"title\": \"SQL 注入\",\n    \"body\": \"字串串接組 SQL。\",\n    \"existing_code\": \"rows = db.execute(\\\"SELECT * FROM t WHERE id=\\\" + uid)\",\n    \"evidence\": \"\"\n  },\n  {\n    \"path\": \"app/handler.py\",\n    \"line\": 13,\n    \"side\": \"RIGHT\",\n    \"severity\": \"minor\",\n    \"confidence\": 0.75,\n    \"title\": \"用 print 除錯\",\n    \"body\": \"改用 logger。\",\n    \"existing_code\": \"\",\n    \"evidence\": \"\"\n  },\n  {\n    \"path\": \"app/util.py\",\n    \"line\": 3,\n    \"side\": \"RIGHT\",\n    \"severity\": \"major\",\n    \"confidence\": 0.8,\n    \"title\": \"DEBUG 沒有預設值\",\n    \"body\": \"環境變數沒設時是 None。\",\n    \"existing_code\": \"DEBUG = os.environ.get(\\\"DEBUG\\\")\",\n    \"evidence\": \"\"\n  }\n]\n"
+  },
+  {
+   "name": "mixed-skip",
+   "args": [
+    "--max-inline",
+    "1"
+   ],
+   "findings": [
+    {
+     "path": "app/handler.py",
+     "line": 12,
+     "side": "RIGHT",
+     "severity": "nit",
+     "confidence": 0.9,
+     "title": "命名可以更清楚",
+     "body": "",
+     "existing_code": "",
+     "evidence": ""
+    },
+    {
+     "path": "app/handler.py",
+     "line": 12,
+     "side": "RIGHT",
+     "severity": "major",
+     "confidence": 0.5,
+     "title": "低信心的推測",
+     "body": "",
+     "existing_code": "",
+     "evidence": ""
+    },
+    {
+     "path": "app/handler.py",
+     "line": 99,
+     "side": "RIGHT",
+     "severity": "major",
+     "confidence": 0.9,
+     "title": "定不到的 finding",
+     "body": "",
+     "existing_code": "this snippet is not in the diff",
+     "evidence": ""
+    },
+    {
+     "path": "app/handler.py",
+     "line": 15,
+     "side": "RIGHT",
+     "severity": "minor",
+     "confidence": 0.8,
+     "title": "多重命中",
+     "body": "",
+     "existing_code": "print(rows)",
+     "evidence": ""
+    },
+    {
+     "path": "app/handler.py",
+     "line": 15,
+     "side": "RIGHT",
+     "severity": "minor",
+     "confidence": 0.8,
+     "title": "片段太短退回行號",
+     "body": "",
+     "existing_code": "return",
+     "evidence": ""
+    },
+    {
+     "path": "app/util.py",
+     "line": 2,
+     "side": "RIGHT",
+     "severity": "major",
+     "confidence": 0.85,
+     "title": "沒用到的 import",
+     "body": "",
+     "existing_code": "import sys",
+     "evidence": ""
+    },
+    {
+     "path": "app/handler.py",
+     "line": 11,
+     "side": "RIGHT",
+     "severity": "minor",
+     "confidence": 0.7,
+     "title": "沒驗證 id",
+     "body": "",
+     "existing_code": "uid = req.args.get(\"id\")",
+     "evidence": ""
+    }
+   ],
+   "stdout": "<!-- deepseek-review -->\n## 🤖 DeepSeek Code Review — 💬 有需要留意的問題\n\n固定的摘要內文（golden 用）。\n\n\n### 未張貼為 inline 的 finding\n\n- `app/handler.py:12` **nit** — 命名可以更清楚（嚴重度 nit 未達 minor）\n- `app/handler.py:12` **major** — 低信心的推測（信心 0.50 < 0.7）\n- `app/handler.py:99` **major** — 定不到的 finding（片段與模型行號都定不到）\n- `app/handler.py:15` **minor** — 多重命中（片段多重命中（2 處），不猜）\n\n[\n  {\n    \"path\": \"app/handler.py\",\n    \"line\": 15,\n    \"side\": \"RIGHT\",\n    \"severity\": \"minor\",\n    \"confidence\": 0.8,\n    \"title\": \"片段太短退回行號\",\n    \"body\": \"\",\n    \"existing_code\": \"return\",\n    \"evidence\": \"\"\n  }\n]\n"
+  }
+ ]
+}

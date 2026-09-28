@@ -70,6 +70,15 @@ on:
         required: false
         type: boolean
         default: true
+      repo-rules-path:
+        description: >-
+          呼叫方 repo 裡的規範檔路徑（例如 .github/review-rules.md）。留空就不開。
+          設了之後每個 PR 多一次 API 呼叫：規範接在 diff 後面，只留標了規範編號（[R03]）的 finding，
+          跟一般 review 合併貼出。⚠️ 規範檔的條目會送給 DeepSeek。檔案取自 default branch，
+          不是 PR 的 head。格式：每個 `- ` 條目算一條，沒有條目的 `## ` 節整節算一條（見 USAGE）。
+        required: false
+        type: string
+        default: ''
       filter-findings:
         description: >-
           ⚠️ 已停用，傳什麼都不會有作用，將於 v2 移除。
@@ -134,10 +143,10 @@ jobs:
           path: .kit
           persist-credentials: false
 
-      # 只在指定了自訂 rubric 時才撈呼叫方的 repo。
+      # 只在指定了自訂 rubric 或規範檔時才撈呼叫方的 repo。
       # 注意 workflow_run 的預設 ref 是 default branch —— 撈到的是受信任的版本，不是 PR 的 head。
-      - name: 取得呼叫方的自訂 rubric
-        if: inputs.rubric-path != ''
+      - name: 取得呼叫方的自訂 rubric 與規範檔
+        if: inputs.rubric-path != '' || inputs.repo-rules-path != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: .caller
@@ -157,6 +166,20 @@ jobs:
             fi
             echo "path=.kit/prompts/review-rubric.md" >> "$GITHUB_OUTPUT"
             echo "使用 kit 內建 rubric"
+          fi
+
+      - name: 決定規範檔
+        id: repo_rules
+        if: inputs.repo-rules-path != ''
+        env:
+          RULES: ${{ inputs.repo-rules-path }}
+        run: |
+          if [ -f ".caller/$RULES" ]; then
+            echo "path=.caller/$RULES" >> "$GITHUB_OUTPUT"
+            echo "repo 規範檔：$RULES（條目會送給 DeepSeek，每個 PR 多一次呼叫）"
+          else
+            echo "::warning::指定了 repo-rules-path=$RULES 但檔案不存在，這次不跑規範那次呼叫"
+            echo "path=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: 下載不受信任 run 產生的 artifact
@@ -198,6 +221,33 @@ jobs:
           fi
           python3 .kit/.github/scripts/deepseek_review.py "${ARGS[@]}"
 
+      # repo 規範那次呼叫（caller 設了 repo-rules-path 才跑）。跟一般那次分開：同一次呼叫附整份
+      # 規範，功能缺陷的 recall 會掉（experiments/2026-09-26-rules-loop.md）。排在一般那次之後，
+      # 到 diff 為止的前綴相同，吃得到 context caching。
+      # 失敗要隔離：continue-on-error 讓一般 review 照貼；--timeout／--retries 和 timeout-minutes
+      # 把最壞耗時壓在幾分鐘內——預設參數最壞要 20 分鐘，會把 job 的額度吃光，連一般 review 都貼不出來。
+      # env 要跟一般那步一樣：secret 得逐步傳，漏了 REVIEW_BLOCKED_TERMS 規範那次就會安靜地不掃。
+      - name: DeepSeek review（repo 規範）
+        id: rules_review
+        if: steps.pr.outputs.number != '' && steps.repo_rules.outputs.path != ''
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ inputs.model }}
+          RUBRIC_PATH: ${{ steps.rubric.outputs.path }}
+          TYPED_RULES: ${{ inputs.typed-rules }}
+          REVIEW_BLOCKED_TERMS: ${{ secrets.REVIEW_BLOCKED_TERMS }}
+          RULES_PATH: ${{ steps.repo_rules.outputs.path }}
+        run: |
+          ARGS=(--diff in/pr.diff --meta in/meta.json --rubric "$RUBRIC_PATH"
+                --out rules-review.md --findings-out rules-findings.json
+                --repo-rules "$RULES_PATH" --timeout 120 --retries 1)
+          if [ "$TYPED_RULES" = "true" ]; then
+            ARGS+=(--rules-dir .kit/prompts/rules)
+          fi
+          python3 .kit/.github/scripts/deepseek_review.py "${ARGS[@]}"
+
       - name: 貼回 PR（摘要 + inline comments）
         if: steps.pr.outputs.number != ''
         env:
@@ -205,6 +255,8 @@ jobs:
           MIN_SEVERITY: ${{ inputs.min-severity }}
           MIN_CONFIDENCE: ${{ inputs.min-confidence }}
           MAX_INLINE: ${{ inputs.max-inline }}
+          # 沒設規範檔時是 skipped（或空字串），post_review.py 就完全走原本的路徑
+          RULES_STATUS: ${{ steps.rules_review.outcome }}
         run: |
           python3 .kit/.github/scripts/post_review.py \
             --repo "${{ github.repository }}" \
@@ -215,7 +267,9 @@ jobs:
             --diff in/pr.diff \
             --min-severity "$MIN_SEVERITY" \
             --min-confidence "$MIN_CONFIDENCE" \
-            --max-inline "$MAX_INLINE"
+            --max-inline "$MAX_INLINE" \
+            --rules-findings rules-findings.json \
+            --rules-status "$RULES_STATUS"
 
       - name: 上傳 review 產出（失敗時也能看，不含任何 secret）
         if: always() && steps.pr.outputs.number != ''
@@ -225,4 +279,6 @@ jobs:
           path: |
             review.md
             findings.json
+            rules-review.md
+            rules-findings.json
           retention-days: 7

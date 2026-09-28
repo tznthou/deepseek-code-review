@@ -6,14 +6,88 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
+import os
 import pathlib
 import re
 import sys
+import tempfile
+import textwrap
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def indented_block(text: str, header: str) -> str:
+    """回傳 strip 後等於 header 的那一行，連同底下縮排更深的行（到下一個同層的行為止）；找不到回空字串。
+
+    用縮排界定區塊、不用 regex：`key:(?:\\n\\s+.*)*?\\n\\s+default:` 這種寫法有巢狀量詞，
+    CodeQL 報 py/redos（2026-09-28）。
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() != header:
+            continue
+        indent = len(line) - len(line.lstrip())
+        block = [line]
+        for nxt in lines[i + 1 :]:
+            if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
+                break
+            block.append(nxt)
+        return "\n".join(block)
+    return ""
+
+
+def workflow_step(workflow_text: str, name: str) -> str:
+    """回傳 `- name: <name>` 那個 step 的整段文字，找不到回空字串。"""
+    return indented_block(workflow_text, f"- name: {name}")
+
+
+def step_env_keys(step_text: str) -> set[str]:
+    """step 的 `env:` 底下有哪些 key。"""
+    keys: set[str] = set()
+    env_indent: int | None = None
+    for line in step_text.splitlines():
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if line.strip() == "env:":
+            env_indent = indent
+            continue
+        if env_indent is not None:
+            if indent <= env_indent:
+                env_indent = None
+                continue
+            m = re.match(r"\s+([A-Z_][A-Z0-9_]*):", line)
+            if m:
+                keys.add(m.group(1))
+    return keys
+
+
+def run_cli(module, argv: list[str], env: dict[str, str]) -> tuple[int, str, str]:
+    """在同一個 process 裡跑 module.main()：換掉 sys.argv 與環境變數、收 stdout／stderr，跑完還原。"""
+    saved_argv = sys.argv
+    saved_env = {key: os.environ.get(key) for key in env}
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        sys.argv = [module.__name__, *argv]
+        os.environ.update(env)
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = module.main()
+            except SystemExit as exc:
+                rc = exc.code if isinstance(exc.code, int) else 1
+    finally:
+        sys.argv = saved_argv
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    return rc, out.getvalue(), err.getvalue()
 
 
 def input_default(workflow_text: str, name: str) -> str | None:
@@ -669,6 +743,278 @@ def main() -> int:
     check("run: 裡沒有直接內插 input", not run_hits, run_hits)
     probe_hits = run_block_input_refs(RUN_PROBE)
     check("探針：run: 裡的內插抓得到（含 `- run: |`），env:／with: 的值不算", probe_hits == [9, 13, 20], probe_hits)
+
+    print("[19] repo 規範檔：切條目、逐字渲染、接在 diff 後面")
+    # v1.5.0 的 opt-in 功能（rules-loop 實驗的 D0f）。呈現逐字沿用實驗的 v01：
+    # 那一版盲標驗過，改一個字就等於換了一個沒量過的 prompt，所以整段逐字釘住。
+    # 切法是子超 2026-09-28 裁定的「條目為主」。
+    rules_a = "# Review rules\n## Python\n- 不要用 print，用 logger\n- 例外要帶 context\n## API 回應\n回應欄位一律用 camelCase，\n既有的 snake_case 欄位不要改。\n"
+    block_a, ids_a = reviewer.render_repo_rules(reviewer.parse_repo_rules(rules_a))
+    expected_block_a = (
+        "## 這個 repo 的規範\n\n以下是這個 repo 自己訂的規範，和上面的通用要求一起適用於這次改動。\n\n"
+        "- [R01] （Python）不要用 print，用 logger\n"
+        "- [R02] （Python）例外要帶 context\n"
+        "- [R03] **API 回應**\n  回應欄位一律用 camelCase，\n  既有的 snake_case 欄位不要改。\n\n"
+        "如果某個 finding 是違反上面的某一條規範，請在它的 `title` 開頭標出規範編號，"
+        "例如 `[R03] …`；一個 finding 只標一條。\n"
+    )
+    check("渲染結果逐字等於 v01 的呈現（開頭說明、清單、標編號那句）", block_a == expected_block_a, block_a)
+    check(
+        "編號對到每條的第一行（分組標籤一起）",
+        ids_a == {"R01": "（Python）不要用 print，用 logger", "R02": "（Python）例外要帶 context", "R03": "API 回應"},
+        ids_a,
+    )
+    rules_b = textwrap.dedent(
+        """\
+        前言不送
+        - 節外的條目
+          它的續行
+
+          空行之後的縮排續行
+        不縮排的散文：結束上一條，而且不送
+        ## 有條目的節
+        節裡的散文不送
+        - 條目一
+        ### 小標是一般文字：結束條目一，不送
+        ## 只有散文的節
+        第一行
+        ```python
+        # 這不是標題
+        ```
+        """
+    )
+    parsed_b = reviewer.parse_repo_rules(rules_b)
+    check("條目、有條目的節、只有散文的節：切成 3 條", len(parsed_b) == 3, parsed_b)
+    if len(parsed_b) == 3:
+        check(
+            "縮排續行跟著條目，空行不中斷",
+            parsed_b[0]["head"] == "節外的條目" and parsed_b[0]["rest"] == ["它的續行", "", "空行之後的縮排續行"],
+            parsed_b[0],
+        )
+        check("節外的條目沒有分組標籤", parsed_b[0]["label"] is None, parsed_b[0])
+        check("節裡的條目帶節標題；節裡的散文與 ### 小標不送", parsed_b[1] == {"kind": "item", "label": "有條目的節", "head": "條目一", "rest": []}, parsed_b[1])
+        check(
+            "code block 裡的 `# ` 不被當成標題，整段留在那一節",
+            parsed_b[2]["kind"] == "section" and parsed_b[2]["head"] == "只有散文的節"
+            and parsed_b[2]["rest"] == ["第一行", "```python", "# 這不是標題", "```"],
+            parsed_b[2],
+        )
+    # PR #47 AI review 第二輪 G1（部分成立）：條目那一行直接開 code block 時，開頭沒被當成 fence，
+    # 結尾那行 ``` 反而被當成「開」，後面的條目全被吞進第一條
+    inline_fence = "- ```python\n  print(\"hello\")\n  ```\n- 下一條\n- 再下一條\n"
+    check(
+        "條目那一行就開 code block（`- ```python`）：結尾的 ``` 是收尾，後面的條目照樣切開",
+        [r["head"] for r in reviewer.parse_repo_rules(inline_fence)] == ["```python", "下一條", "再下一條"],
+        [(r["head"], r["rest"]) for r in reviewer.parse_repo_rules(inline_fence)],
+    )
+    check("整份都是散文：0 條", reviewer.parse_repo_rules("# 標題\n只有散文\n") == [])
+    check("`*` 也算條目", [r["head"] for r in reviewer.parse_repo_rules("* 星號條目\n")] == ["星號條目"])
+
+    with tempfile.TemporaryDirectory() as td:
+        tdp = pathlib.Path(td)
+        diff_r = (
+            "diff --git a/app/svc.py b/app/svc.py\n--- a/app/svc.py\n+++ b/app/svc.py\n"
+            "@@ -1,2 +1,4 @@\n import os\n+print(\"debug\")\n+value = compute()\n def run():\n"
+        )
+        (tdp / "pr.diff").write_text(diff_r, encoding="utf-8")
+        (tdp / "rules.md").write_text(rules_a, encoding="utf-8")
+        rubric_path = ROOT / "prompts/review-rubric.md"
+        model_findings = [
+            {"path": "app/svc.py", "line": 2, "severity": "minor", "confidence": 0.9, "title": "[R01] 用了 print",
+             "body": "改用 logger。", "existing_code": 'print("debug")'},
+            {"path": "app/svc.py", "line": 3, "severity": "major", "confidence": 0.8, "title": "compute 可能丟例外",
+             "body": "沒有處理。", "existing_code": "value = compute()"},
+            {"path": "app/svc.py", "line": 3, "severity": "minor", "confidence": 0.8, "title": "[R99] 不存在的編號",
+             "body": "", "existing_code": "value = compute()"},
+            {"path": "app/svc.py", "line": 3, "severity": "minor", "confidence": 0.7, "title": "例外沒帶 context",
+             "body": "違反 （R02）。", "existing_code": "value = compute()"},
+            {"path": "app/svc.py", "line": 2, "severity": "minor", "confidence": 0.7, "title": "[R99] 標錯",
+             "body": "其實是 [R01]", "existing_code": 'print("debug")'},
+        ]
+        calls: list[dict] = []
+
+        def fake_completion(base_url, api_key, payload, timeout, retries):
+            calls.append(payload)
+            content = json.dumps({"summary": "s", "verdict": "comment", "findings": model_findings}, ensure_ascii=False)
+            return {"choices": [{"message": {"content": content}, "finish_reason": "stop"}], "usage": {}}
+
+        real_completion = reviewer.chat_completion
+        reviewer.chat_completion = fake_completion
+        try:
+            base_args = ["--diff", str(tdp / "pr.diff"), "--rubric", str(rubric_path),
+                         "--rules-dir", str(ROOT / "prompts/rules")]
+            env = {"DEEPSEEK_API_KEY": "sk-selftest", "REVIEW_BLOCKED_TERMS": "",
+                   "GITHUB_STEP_SUMMARY": str(tdp / "summary.md")}
+            rc_n, _, _ = run_cli(reviewer, [*base_args, "--out", str(tdp / "n.md"),
+                                            "--findings-out", str(tdp / "n.json")], env)
+            rc_r, _, err_r = run_cli(reviewer, [*base_args, "--repo-rules", str(tdp / "rules.md"),
+                                                "--out", str(tdp / "r.md"), "--findings-out", str(tdp / "r.json")], env)
+            check("一般那次與規範那次都跑完（假 API）", rc_n == 0 and rc_r == 0 and len(calls) == 2, (rc_n, rc_r, err_r[-300:]))
+            if len(calls) == 2:
+                normal_user = calls[0]["messages"][1]["content"]
+                rules_user = calls[1]["messages"][1]["content"]
+                check("system prompt 兩次都是同一份 rubric", calls[0]["messages"][0]["content"] == calls[1]["messages"][0]["content"])
+                check("規範區塊逐字出現在 user message", expected_block_a in rules_user)
+                check("一般那次沒有規範區塊", reviewer.REPO_RULES_HEADER not in normal_user)
+                pos_diff = rules_user.find("value = compute()")
+                pos_rules = rules_user.find(reviewer.REPO_RULES_HEADER)
+                pos_typed = rules_user.find("## 這次改動涉及的檔案型態")
+                check("順序：diff → repo 規範 → 補充規則（同 v01）", 0 < pos_diff < pos_rules < pos_typed, (pos_diff, pos_rules, pos_typed))
+                common = os.path.commonprefix([normal_user, rules_user])
+                # meta 與 diff 各一對 ``` ：到 diff 收尾為止兩次逐字相同，才吃得到 context caching
+                check("到 diff 收尾為止兩次呼叫逐字相同", common.count("```") >= 4 and "value = compute()" in common, common[-80:])
+            kept = json.loads((tdp / "r.json").read_text(encoding="utf-8"))
+            check(
+                "只留標了有效編號的：[R01] 留、沒標丟、[R99] 丟、只標在 body 的收、title 標錯不退去 body",
+                [(f["title"], f.get("rule")) for f in kept] == [("[R01] 用了 print", "R01"), ("例外沒帶 context", "R02")],
+                [(f["title"], f.get("rule")) for f in kept],
+            )
+            check("留下的帶著規範第一行", [f.get("rule_text") for f in kept] == ["（Python）不要用 print，用 logger", "（Python）例外要帶 context"], kept)
+            summary_text = (tdp / "summary.md").read_text(encoding="utf-8")
+            check(
+                "Step Summary：規範那次只寫一行統計，不出現第二份完整 review",
+                summary_text.count("DeepSeek Code Review") == 1 and "### repo 規範那次呼叫" in summary_text,
+                summary_text[-200:],
+            )
+            # 規範檔也是外送內容：禁用詞只出現在規範檔時，照樣要在送出前擋下
+            (tdp / "secret-rules.md").write_text("- 內部代號 zz-rule-secret 不要外流\n", encoding="utf-8")
+            before = len(calls)
+            rc_b, _, err_b = run_cli(reviewer, [*base_args, "--repo-rules", str(tdp / "secret-rules.md"), "--out", str(tdp / "b.md"),
+                                                "--findings-out", str(tdp / "b.json")], {**env, "REVIEW_BLOCKED_TERMS": "zz-rule-secret"})
+            check("禁用詞只在規範檔裡：拒送（離開碼 3）、沒有呼叫 API", rc_b == 3 and len(calls) == before, (rc_b, err_b[-200:]))
+            check("拒送訊息沒有印出禁用詞本身", "zz-rule-secret" not in err_b)
+            (tdp / "prose.md").write_text("只有散文，沒有條目\n", encoding="utf-8")
+            (tdp / "many.md").write_text("".join(f"- 規範 {i}\n" for i in range(100)), encoding="utf-8")
+            for label, name in (("解析出 0 條", "prose.md"), ("超過 99 條", "many.md"), ("檔案不存在", "missing.md")):
+                rc_x, _, err_x = run_cli(reviewer, [*base_args, "--repo-rules", str(tdp / name), "--out", str(tdp / "x.md"),
+                                                    "--findings-out", str(tdp / "x.json")], env)
+                check(f"規範檔{label}：離開碼 1、印 ::warning::、沒有呼叫 API", rc_x == 1 and "::warning::" in err_x and len(calls) == before, (rc_x, err_x[-200:]))
+        finally:
+            reviewer.chat_completion = real_completion
+
+    print("[20] 規範編號過濾：只認有效編號")
+    rule_map = {"R01": "a", "R02": "b", "R03": "c"}
+    for label, finding, want in (
+        ("[R03] 開頭", {"title": "[R03] foo", "body": ""}, "R03"),
+        ("全形括號（R02）", {"title": "（R02）foo", "body": ""}, "R02"),
+        ("【R01】", {"title": "【R01】foo", "body": ""}, "R01"),
+        ("編號不存在", {"title": "[R99] foo", "body": ""}, None),
+        ("沒標", {"title": "foo", "body": "bar"}, None),
+        ("只標在 body", {"title": "foo", "body": "違反 [R02]"}, "R02"),
+        ("title 標錯編號，不退去 body（同實驗計分）", {"title": "[R99] foo", "body": "[R02]"}, None),
+        ("一位數不算", {"title": "[R3] foo", "body": ""}, None),
+        ("沒有括號不算", {"title": "R03 foo", "body": ""}, None),
+    ):
+        got = reviewer.cited_rule(finding, rule_map)
+        check(label, got == want, got)
+
+    print("[21] post：沒設規範檔的輸出逐字不變，有設才合併與加摘要")
+    # 改 post_review.py 會影響所有 @v1 caller。golden 是改動前用 v1.4.1 的 post_review.py 產生的
+    # （2026-09-28），不可以用新版重產——它就是「沒設規範檔的 caller 行為不變」的基準。
+    golden = json.loads((ROOT / "tools/fixtures/post_review_golden.json").read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as td:
+        tdp = pathlib.Path(td)
+        (tdp / "pr.diff").write_text(golden["diff"], encoding="utf-8")
+        (tdp / "review.md").write_text(golden["review"], encoding="utf-8")
+
+        def post_dry_run(findings: list[dict], extra: list[str]) -> tuple[int, str]:
+            (tdp / "findings.json").write_text(json.dumps(findings, ensure_ascii=False), encoding="utf-8")
+            rc, out, _ = run_cli(poster, ["--repo", "o/r", "--pr", "1", "--sha", "abc", "--review", str(tdp / "review.md"),
+                                          "--findings", str(tdp / "findings.json"), "--diff", str(tdp / "pr.diff"),
+                                          "--dry-run", *extra], {"GH_TOKEN": "dummy-for-dry-run"})
+            return rc, out
+
+        for case in golden["cases"]:
+            for status in ([], ["--rules-status", "skipped", "--rules-findings", str(tdp / "none.json")]):
+                rc, out = post_dry_run(case["findings"], [*case["args"], *status])
+                tag = "rules-status=skipped" if status else "不帶新參數"
+                check(f"golden {case['name']}（{tag}）逐字相同", rc == 0 and out == case["stdout"], out[:300])
+        plain = {"severity": "minor", "title": "t", "body": "b", "confidence": 0.8}
+        check(
+            "一般 finding 的 inline 內文跟 v1.4.1 逐字相同",
+            poster.inline_body(plain) == "<!-- deepseek-review -->\n**MINOR** — t\n\nb\n\n<sub>confidence 0.80 ｜ DeepSeek automated review</sub>",
+            poster.inline_body(plain),
+        )
+
+        normal_case = next(c for c in golden["cases"] if c["name"] == "normal")
+        rules_found = [
+            {"path": "app/handler.py", "line": 13, "side": "RIGHT", "severity": "minor", "confidence": 0.9,
+             "title": "[R01] 用了 print", "body": "改用 logger。", "existing_code": "", "evidence": "",
+             "rule": "R01", "rule_text": "不要用 print"},
+            {"path": "app/handler.py", "line": 19, "side": "RIGHT", "severity": "major", "confidence": 0.85,
+             "title": "[R03] 函式沒有 docstring", "body": "補上。", "existing_code": "", "evidence": "",
+             "rule": "R03", "rule_text": "公開函式要有 docstring"},
+            {"path": "app/util.py", "line": 2, "side": "RIGHT", "severity": "minor", "confidence": 0.5,
+             "title": "[R02] 低信心", "body": "", "existing_code": "", "evidence": "", "rule": "R02", "rule_text": "x"},
+        ]
+        (tdp / "rules.json").write_text(json.dumps(rules_found, ensure_ascii=False), encoding="utf-8")
+        rc, out = post_dry_run(normal_case["findings"], ["--rules-status", "success", "--rules-findings", str(tdp / "rules.json")])
+        check("有設規範檔：跑完", rc == 0, out[-300:])
+        selected_json = json.loads(out[out.rindex("\n[") + 1:]) if "\n[" in out else []
+        print_host = next((f for f in selected_json if f["title"] == "用 print 除錯"), {})
+        check(
+            "±3 行內跨 pass 合併：規範那則併進同一處的一般 finding",
+            [m["rule"] for m in print_host.get("merged_rules", [])] == ["R01"],
+            print_host,
+        )
+        check(
+            "離最近的一般 finding 超過 3 行：單獨貼",
+            any(f.get("rule") == "R03" for f in selected_json) and all(f.get("rule") != "R01" for f in selected_json),
+            [f["title"] for f in selected_json],
+        )
+        check("低於門檻的規範 finding 不貼也不併", all("R02" not in json.dumps(f, ensure_ascii=False) for f in selected_json))
+        check("低於門檻的規範 finding 列在「未張貼」並附原因", "[R02] 低信心（信心 0.50 < 0.7）" in out, out[-400:])
+        check("摘要多一段「違反 repo 規範」", "### 違反 repo 規範（3 筆）" in out and "| `app/handler.py:19` | R03 |" in out, out[-600:])
+        check(
+            "合起來照嚴重度、信心排序（blocker → major → minor）",
+            [f["severity"] for f in selected_json] == sorted([f["severity"] for f in selected_json], key=lambda s: -poster.SEVERITY_RANK[s]),
+            [f["severity"] for f in selected_json],
+        )
+        merged_body = poster.inline_body(print_host) if print_host else ""
+        check("合併的留言兩邊的重點都在、標出規範", "用 print 除錯" in merged_body and "同一處也違反 repo 規範 R01" in merged_body and "改用 logger。" in merged_body, merged_body)
+        normal_selected = normal_case["stdout"][normal_case["stdout"].rindex("\n[") + 1:]
+        for status in ("failure", "cancelled"):
+            rc, out = post_dry_run(normal_case["findings"], ["--rules-status", status, "--rules-findings", str(tdp / "rules.json")])
+            check(f"規範那次 {status}：摘要註明沒成功", "規範那次呼叫沒有成功" in out, out[-300:])
+            check(f"規範那次 {status}：一般 review 的 inline 照舊", out[out.rindex("\n[") + 1:] == normal_selected, out[-300:])
+        rc, out = post_dry_run(normal_case["findings"], ["--rules-status", "success", "--rules-findings", str(tdp / "none.json")])
+        check("規範那次成功但 0 筆：摘要說明這次沒有", "這次沒有標了規範編號的 finding" in out, out[-300:])
+
+    # ±3 的邊界要釘住：只測距離 0 和 6 的話，把寬度改成 0 或 5 都照樣全綠
+    hosts = [{"path": "a.py", "line": 10, "title": "h10"}, {"path": "a.py", "line": 20, "title": "h20"}]
+    extras = [
+        {"path": "a.py", "line": 13, "title": "距離 3"},
+        {"path": "a.py", "line": 14, "title": "距離 4"},
+        {"path": "a.py", "line": 7, "title": "往上距離 3"},
+        {"path": "b.py", "line": 10, "title": "別的檔案"},
+        {"path": "a.py", "line": 17, "title": "兩邊都在範圍內，選近的（離 20 只有 3）"},
+    ]
+    alone = poster.merge_into(hosts, extras)
+    check("距離 3 併、距離 4 不併、往上也算、別的檔案不併",
+          [e["title"] for e in alone] == ["距離 4", "別的檔案"], [e["title"] for e in alone])
+    check("併進最近的那則",
+          [e["title"] for e in hosts[0].get("merged_rules", [])] == ["距離 3", "往上距離 3"]
+          and [e["title"] for e in hosts[1].get("merged_rules", [])] == ["兩邊都在範圍內，選近的（離 20 只有 3）"],
+          (hosts[0].get("merged_rules"), hosts[1].get("merged_rules")))
+
+    wf_post = (ROOT / ".github/workflows/reusable-ai-review-post.yml").read_text(encoding="utf-8")
+    step_normal = workflow_step(wf_post, "DeepSeek review（唯一跨越信任邊界的是「資料」）")
+    step_rules = workflow_step(wf_post, "DeepSeek review（repo 規範）")
+    step_post = workflow_step(wf_post, "貼回 PR（摘要 + inline comments）")
+    check("找得到三個 step", bool(step_normal and step_rules and step_post))
+    rules_input = indented_block(wf_post, "repo-rules-path:")
+    check("新 input 預設留空（沒設的 caller 不會多呼叫）",
+          "default: ''" in [ln.strip() for ln in rules_input.splitlines()], rules_input[-200:])
+    check("規範那步失敗不擋一般 review（continue-on-error）", "continue-on-error: true" in step_rules)
+    check("規範那步的最壞耗時有上限（timeout-minutes 與 --timeout／--retries）",
+          "timeout-minutes: 6" in step_rules and "--timeout 120 --retries 1" in step_rules)
+    check("規範那步的 env 包含一般那步的全部（含 REVIEW_BLOCKED_TERMS）",
+          step_env_keys(step_normal) <= step_env_keys(step_rules) and "REVIEW_BLOCKED_TERMS" in step_env_keys(step_rules),
+          (step_env_keys(step_normal), step_env_keys(step_rules)))
+    post_if = next((ln for ln in step_post.splitlines() if ln.strip().startswith("if:")), "")
+    check("貼文那步的 if 不依賴規範那步", "rules_review" not in post_if, post_if)
+    check("貼文那步把規範那步的 outcome 傳給 post_review.py",
+          "steps.rules_review.outcome" in step_post and '--rules-status "$RULES_STATUS"' in step_post)
 
     print()
     if failures:
