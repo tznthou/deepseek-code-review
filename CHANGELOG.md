@@ -11,6 +11,12 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-28
+
+> **minor**：新增一個 opt-in 的 input（`repo-rules-path`），介面只加不減。沒設的 caller 不用改任何東西，
+> 行為也不變（`tools/fixtures/` 的 golden 由 v1.4.1 產生，逐字比對）。引用 `@v1` 的 repo 會自動拿到新版；
+> 要用新功能，在 `reusable-ai-review-post.yml` 的 caller 加上 `repo-rules-path`（說明見 USAGE「客製」一節）。
+
 ### Added
 
 - **repo 規範檔另外用一次呼叫（opt-in）**：`reusable-ai-review-post.yml` 新增 `repo-rules-path`。
@@ -484,7 +490,8 @@
   方式導入，不必複製腳本也不必複製 rubric。
 - `USAGE.md`：三步驟導入說明與可直接複製的 caller 範本。
 
-[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/tznthou/deepseek-code-review/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/tznthou/deepseek-code-review/compare/v1.3.0...v1.3.1
