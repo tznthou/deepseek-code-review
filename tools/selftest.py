@@ -1016,6 +1016,59 @@ def main() -> int:
     check("貼文那步把規範那步的 outcome 傳給 post_review.py",
           "steps.rules_review.outcome" in step_post and '--rules-status "$RULES_STATUS"' in step_post)
 
+    print("[22] inline 預設關閉：--no-inline 只貼摘要，定位、門檻與 blocker 判斷照舊")
+    # v1.6.0：reusable workflow 的 inline-comments 預設 false，會帶 --no-inline（這個工具只當粗篩，
+    # 行內留言讓每一則讀起來都像待辦）。腳本本身的預設不變——上面 [21] 的 golden 照舊逐字相同。
+    with tempfile.TemporaryDirectory() as td:
+        tdp = pathlib.Path(td)
+        (tdp / "pr.diff").write_text(golden["diff"], encoding="utf-8")
+        (tdp / "review.md").write_text(golden["review"], encoding="utf-8")
+        (tdp / "rules.json").write_text(json.dumps(rules_found, ensure_ascii=False), encoding="utf-8")
+        base_argv = ["--repo", "o/r", "--pr", "1", "--sha", "abc", "--review", str(tdp / "review.md"),
+                     "--findings", str(tdp / "findings.json"), "--diff", str(tdp / "pr.diff")]
+
+        for case in golden["cases"]:
+            (tdp / "findings.json").write_text(json.dumps(case["findings"], ensure_ascii=False), encoding="utf-8")
+            rc, out, _ = run_cli(poster, [*base_argv, "--dry-run", "--no-inline", *case["args"]],
+                                 {"GH_TOKEN": "dummy-for-dry-run"})
+            check(f"golden {case['name']}：摘要就是 review.md 原文、沒有「未張貼」段、待貼清單是空的",
+                  rc == 0 and out == golden["review"] + "\n[]\n", out[-300:])
+
+        (tdp / "findings.json").write_text(json.dumps(normal_case["findings"], ensure_ascii=False), encoding="utf-8")
+        rc, out, _ = run_cli(poster, [*base_argv, "--dry-run", "--no-inline", "--rules-status", "success",
+                                      "--rules-findings", str(tdp / "rules.json")], {"GH_TOKEN": "dummy-for-dry-run"})
+        check("有設規範檔：規範段照樣附在摘要，沒有「未張貼」段，待貼清單是空的",
+              rc == 0 and "### 違反 repo 規範（3 筆）" in out and "未張貼為 inline" not in out and out.endswith("\n[]\n"),
+              out[-400:])
+
+        # 真的走到貼文那段（gh 換成紀錄器）：dry-run 在貼文之前就 return，驗不到「沒打 API」
+        calls: list[list[str]] = []
+        original_gh = poster.gh
+        try:
+            poster.gh = lambda args, check=True: calls.append(list(args)) or ""
+            rc, _, _ = run_cli(poster, [*base_argv, "--no-inline", "--request-changes-on-blocker"], {"GH_TOKEN": "dummy"})
+            check("--no-inline：只呼叫一次 gh pr review，沒有任何 gh api（不查既有留言、不貼行內）",
+                  [c[:2] for c in calls] == [["pr", "review"]], [c[:3] for c in calls])
+            check("--no-inline：blocker 照樣觸發 --request-changes，離開碼 1",
+                  rc == 1 and bool(calls) and "--request-changes" in calls[0], (rc, calls[:1]))
+            calls.clear()
+            rc, _, _ = run_cli(poster, [*base_argv, "--request-changes-on-blocker"], {"GH_TOKEN": "dummy"})
+            check("對照：不帶 --no-inline 會查既有留言並貼行內（這組測項分得出兩種模式）",
+                  any(c[:2] == ["api", "--paginate"] for c in calls) and any(c[:3] == ["api", "--method", "POST"] for c in calls),
+                  [c[:3] for c in calls])
+        finally:
+            poster.gh = original_gh
+
+    inline_input = indented_block(wf_post, "inline-comments:")
+    check("新 input 預設 false（預設只貼摘要）",
+          "default: false" in [ln.strip() for ln in inline_input.splitlines()], inline_input[-200:])
+    check("貼文那步：inline-comments 不是 true 就帶 --no-inline，值走 env",
+          "INLINE_COMMENTS: ${{ inputs.inline-comments }}" in step_post
+          and '[ "$INLINE_COMMENTS" != "true" ]' in step_post
+          and "NO_INLINE=(--no-inline)" in step_post
+          and '"${NO_INLINE[@]}"' in step_post,
+          step_post[-500:])
+
     print()
     if failures:
         print(f"FAILED: {len(failures)} 項 -> {failures}")

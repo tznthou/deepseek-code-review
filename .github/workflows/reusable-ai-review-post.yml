@@ -43,16 +43,27 @@ on:
         required: false
         type: string
         default: deepseek-v4-pro
+      inline-comments:
+        description: >-
+          要不要把 finding 貼成行內留言。預設 false：只貼一則摘要，所有 finding 都在摘要的表格裡
+          （位置已由程式用片段比對定好）。設成 true 回到 v1.5.0 及更早版本的行為：過了 min-severity 與
+          min-confidence 的貼成行內留言（最多 max-inline 則），其餘降級進摘要。預設關閉的原因：
+          這個工具只當粗篩、每筆都要驗證，而行內留言會讓每一則讀起來都像待辦（成立率見 README §4.8）。
+        required: false
+        type: boolean
+        default: false
       min-severity:
+        description: 低於此嚴重度的 finding 不貼行內留言（inline-comments 為 true 時才有作用）
         required: false
         type: string
         default: minor
       min-confidence:
+        description: 低於此信心的 finding 不貼行內留言（inline-comments 為 true 時才有作用）
         required: false
         type: number
         default: 0.7
       max-inline:
-        description: 最多貼幾則 inline comment，其餘降級進摘要
+        description: 最多貼幾則 inline comment，其餘降級進摘要（inline-comments 為 true 時才有作用）
         required: false
         type: number
         default: 8
@@ -256,9 +267,15 @@ jobs:
           MIN_SEVERITY: ${{ inputs.min-severity }}
           MIN_CONFIDENCE: ${{ inputs.min-confidence }}
           MAX_INLINE: ${{ inputs.max-inline }}
+          INLINE_COMMENTS: ${{ inputs.inline-comments }}
           # 沒設規範檔時是 skipped（或空字串），post_review.py 就完全走原本的路徑
           RULES_STATUS: ${{ steps.rules_review.outcome }}
         run: |
+          # 預設只貼摘要：inline-comments 不是 true 就帶 --no-inline（腳本本身的預設是照舊貼）
+          NO_INLINE=()
+          if [ "$INLINE_COMMENTS" != "true" ]; then
+            NO_INLINE=(--no-inline)
+          fi
           python3 .kit/.github/scripts/post_review.py \
             --repo "${{ github.repository }}" \
             --pr "${{ steps.pr.outputs.number }}" \
@@ -270,7 +287,8 @@ jobs:
             --min-confidence "$MIN_CONFIDENCE" \
             --max-inline "$MAX_INLINE" \
             --rules-findings rules-findings.json \
-            --rules-status "$RULES_STATUS"
+            --rules-status "$RULES_STATUS" \
+            "${NO_INLINE[@]}"
 
       - name: 上傳 review 產出（失敗時也能看，不含任何 secret）
         if: always() && steps.pr.outputs.number != ''
