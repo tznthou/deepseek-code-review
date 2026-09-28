@@ -20,6 +20,9 @@
     同一個 `(path, line)` 不重貼。摘要用 `gh pr review --comment`，每次執行都新建一則 review。
   * **不 gating**：預設只留 COMMENT review，不送 REQUEST_CHANGES，
     避免模型（或 prompt injection）取得擋 merge 的能力。要開啟請用 --request-changes-on-blocker。
+  * **行內留言可以關掉**：`--no-inline` 只貼摘要（review.md 本身就有完整的 Findings 表）。
+    定位、門檻與 --request-changes-on-blocker 的判斷照舊，只是不查既有留言、不貼 inline。
+    reusable workflow 的 `inline-comments` 預設 false 時會帶這個參數；直接呼叫本腳本時預設照舊貼。
 """
 
 from __future__ import annotations
@@ -185,6 +188,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-confidence", type=float, default=0.7)
     p.add_argument("--max-inline", type=int, default=8)
     p.add_argument("--request-changes-on-blocker", action="store_true")
+    p.add_argument(
+        "--no-inline",
+        action="store_true",
+        help="只貼摘要、不貼行內留言；定位、門檻與 blocker 的判斷照舊",
+    )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--rules-findings", default=None, help="repo 規範那次呼叫的 findings JSON（選填）")
     p.add_argument(
@@ -342,11 +350,12 @@ def main() -> int:
     # 「每個 step 都 success、review.md 完整、PR 上零留言」，當時 log 裡沒有
     # 任何一個數字能揭穿它。
     log(
-        f"[info] findings={len(findings)} inline={len(selected)} "
+        f"[info] findings={len(findings)} inline={'off' if args.no_inline else len(selected)} "
         f"skipped={len(skipped)} relocated={relocated}"
     )
 
-    if skipped:
+    # --no-inline 時不附這一段：review.md 的 Findings 表已經列出全部 finding
+    if skipped and not args.no_inline:
         review_body += "\n\n### 未張貼為 inline 的 finding\n\n"
         for f, reason in skipped:
             review_body += (
@@ -354,9 +363,12 @@ def main() -> int:
                 f"（{reason}）\n"
             )
 
+    # 要貼成行內留言的；--no-inline 時是空的。selected 本身留著給底下的 blocker 判斷用
+    to_post = [] if args.no_inline else selected
+
     if args.dry_run:
         print(review_body)
-        print(json.dumps(selected, ensure_ascii=False, indent=2))
+        print(json.dumps(to_post, ensure_ascii=False, indent=2))
         return 0
 
     # 1) 摘要留言：每次執行都新建一則 review（冪等只做在下面的 inline comment）
@@ -377,14 +389,18 @@ def main() -> int:
     )
 
     # 2) inline comments（跳過已貼過的）
-    already = existing_inline_keys(args.repo, args.pr) if args.diff else set()
     posted = 0
+    if args.no_inline:
+        log("[info] inline 關閉（--no-inline）：只貼摘要，不查既有留言")
+        already = set()
+    else:
+        already = existing_inline_keys(args.repo, args.pr) if args.diff else set()
     if already is None:
         # 冪等性檢查失敗。寧可不貼也不要重複貼——摘要已經在上面貼了，
         # 資訊不會遺失，而重複的 inline comment 得由人工一則一則刪。
         log("[warn] 冪等性檢查失敗，本次跳過所有 inline comment（摘要不受影響）")
     else:
-        for f in selected:
+        for f in to_post:
             if (f["path"], f["line"]) in already:
                 log(f"[info] 已存在，跳過 {f['path']}:{f['line']}")
                 continue
