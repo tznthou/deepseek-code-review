@@ -21,11 +21,15 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def workflow_step(workflow_text: str, name: str) -> str:
-    """回傳 `- name: <name>` 那個 step 的整段文字（到下一個同層的行為止），找不到回空字串。"""
-    lines = workflow_text.splitlines()
+def indented_block(text: str, header: str) -> str:
+    """回傳 strip 後等於 header 的那一行，連同底下縮排更深的行（到下一個同層的行為止）；找不到回空字串。
+
+    用縮排界定區塊、不用 regex：`key:(?:\\n\\s+.*)*?\\n\\s+default:` 這種寫法有巢狀量詞，
+    CodeQL 報 py/redos（2026-09-28）。
+    """
+    lines = text.splitlines()
     for i, line in enumerate(lines):
-        if line.strip() != f"- name: {name}":
+        if line.strip() != header:
             continue
         indent = len(line) - len(line.lstrip())
         block = [line]
@@ -35,6 +39,11 @@ def workflow_step(workflow_text: str, name: str) -> str:
             block.append(nxt)
         return "\n".join(block)
     return ""
+
+
+def workflow_step(workflow_text: str, name: str) -> str:
+    """回傳 `- name: <name>` 那個 step 的整段文字，找不到回空字串。"""
+    return indented_block(workflow_text, f"- name: {name}")
 
 
 def step_env_keys(step_text: str) -> set[str]:
@@ -985,7 +994,9 @@ def main() -> int:
     step_rules = workflow_step(wf_post, "DeepSeek review（repo 規範）")
     step_post = workflow_step(wf_post, "貼回 PR（摘要 + inline comments）")
     check("找得到三個 step", bool(step_normal and step_rules and step_post))
-    check("新 input 預設留空（沒設的 caller 不會多呼叫）", re.search(r"repo-rules-path:(?:\n\s+.*)*?\n\s+default: ''", wf_post) is not None)
+    rules_input = indented_block(wf_post, "repo-rules-path:")
+    check("新 input 預設留空（沒設的 caller 不會多呼叫）",
+          "default: ''" in [ln.strip() for ln in rules_input.splitlines()], rules_input[-200:])
     check("規範那步失敗不擋一般 review（continue-on-error）", "continue-on-error: true" in step_rules)
     check("規範那步的最壞耗時有上限（timeout-minutes 與 --timeout／--retries）",
           "timeout-minutes: 6" in step_rules and "--timeout 120 --retries 1" in step_rules)

@@ -85,7 +85,6 @@ REPO_RULES_CITE = (
 # 編號固定兩位數（R01–R99），過濾用的 CITE_RE 也只認兩位數；超過就對不上編號。
 MAX_REPO_RULES = 99
 CITE_RE = re.compile(r"[\[(（【]\s*R(\d{2})\s*[\])）】]")
-_RULES_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _RULES_ITEM = re.compile(r"^[-*]\s+(\S.*)$")
 _RULES_FENCE = re.compile(r"^\s*(```|~~~)")
 
@@ -190,6 +189,19 @@ def load_text(path: str | None) -> str:
         return fh.read()
 
 
+def _heading(line: str) -> tuple[int, str] | None:
+    """Markdown 標題 → (層級, 標題文字)，不是標題回 None。
+
+    不用 regex：`^(#{1,6})\\s+(.*?)\\s*#*\\s*$` 這種寫法遇到一長串空白會退化成平方時間
+    （2026-09-28 CodeQL py/polynomial-redos），而規範檔的內容是外部給的。
+    """
+    rest = line.lstrip("#")
+    level = len(line) - len(rest)
+    if not 1 <= level <= 6 or rest[:1] not in (" ", "\t"):
+        return None
+    return level, rest.strip().rstrip("#").strip()
+
+
 def _trim_block(lines: list[str]) -> list[str]:
     """去掉頭尾空行與共同縮排。"""
     text = textwrap.dedent("\n".join(lines)).strip("\n")
@@ -255,11 +267,11 @@ def parse_repo_rules(text: str) -> list[dict]:
             fence = (opened.group(1), target)
             attach(line, target)
             continue
-        heading = _RULES_HEADING.match(line)
-        if heading and len(heading.group(1)) <= 2:
+        heading = _heading(line)
+        if heading and heading[0] <= 2:
             close_section()
-            if len(heading.group(1)) == 2 and heading.group(2):
-                label = heading.group(2)
+            if heading[0] == 2 and heading[1]:
+                label = heading[1]
             continue
         bullet = _RULES_ITEM.match(line)
         if bullet:
