@@ -712,7 +712,7 @@ def main() -> int:
     )
 
     # repo 規範接在 diff 後面、補充規則前面（同實驗 v01 的順序）。到 diff 為止跟一般那次
-    # 呼叫逐字相同，吃得到 context caching。
+    # 呼叫逐字相同（命中 context caching 的前提；2026-09-28 實測兩次只隔幾秒時幾乎沒有命中）。
     rule_ids: dict[str, str] = {}
     if args.repo_rules:
         if not os.path.exists(args.repo_rules):
