@@ -30,12 +30,13 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import locate  # noqa: E402  （同目錄模組，必須在 sys.path 調整之後 import）
 
 SEVERITY_RANK = {"nit": 0, "minor": 1, "major": 2, "blocker": 3}
-MARKER = "deepseek-review"
+MARKER = "deepseek-reviewX"
 # 規範那次呼叫的 finding 落在一般 finding 的同檔 ±3 行內，就併進那則留言（跟評估時的位置命中同一個寬度）
 MERGE_WINDOW = 3
 
