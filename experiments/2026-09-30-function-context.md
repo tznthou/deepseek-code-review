@@ -88,6 +88,6 @@ kit 送給模型的 diff，每個改動上下各帶 3 行（`git diff --unified=
 
 kit 沒改，也不加「函式上下文」這個選項。
 
-## 沒公開的部分
+## 原始資料
 
-模型輸出、標記單與腳本放在不進 repo 的私有目錄。
+函式上下文兩輪與基準新跑那輪的模型輸出、標記單與腳本在 [`2026-09-30-function-context/`](https://github.com/tznthou/deepseek-code-review-data/tree/main/2026-09-30-function-context)；基準線那兩輪的輸出在 [`2026-09-25-qodo-bench/`](https://github.com/tznthou/deepseek-code-review-data/tree/main/2026-09-25-qodo-bench) 的 `rounds/`。送出去的 diff（原本的與擴到所在函式的，共 702 份）沒有放：目錄裡的 `scripts/build_diffs.py` 會從 Qodo PR 的公開 fork 重新產生。
