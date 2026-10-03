@@ -73,6 +73,6 @@
 
 README §2 步驟 5 建議把專案禁區寫進 rubric，那是放在同一次呼叫；這裡量的是整份規範檔，只挑幾條的代價沒量過，步驟 5 已經補上這一點。
 
-## 沒公開的部分
+## 原始資料
 
-模型輸出、標記單、切分檔與腳本放在不進 repo 的私有目錄。
+模型輸出、標記單、切分檔與腳本在 [`2026-09-26-rules-loop/`](https://github.com/tznthou/deepseek-code-review-data/tree/main/2026-09-26-rules-loop)。沒放的東西（API 帳戶餘額、互相覆蓋掉的 log 等）與原因，見 data repo 的[「沒放的東西」](https://github.com/tznthou/deepseek-code-review-data#沒放的東西)。

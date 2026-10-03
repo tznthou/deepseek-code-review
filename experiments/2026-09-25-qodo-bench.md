@@ -49,6 +49,6 @@ kit 在「修改既有檔案」的 PR 上，抓得到幾成缺陷？
 
 kit 本身沒改。這組數字成了基準線：之後改 prompt 或流程，先在同一份資料上跑一輪，拿功能性 recall 跟它比。第一個這樣做的是[把 repo 規範給它](2026-09-26-rules-loop.md)那組。
 
-## 沒公開的部分
+## 原始資料
 
-模型輸出、標記單、評估集與腳本放在不進 repo 的私有目錄。資料集本身是公開的，要重現可以從上面的連結下載。
+模型輸出、標記單與腳本在 [`2026-09-25-qodo-bench/`](https://github.com/tznthou/deepseek-code-review-data/tree/main/2026-09-25-qodo-bench)。資料集原檔、從它產生的評估集、各 PR 的 diff 沒有重新散布：資料集從上面的連結下載，評估集與 diff 照目錄裡釘的 revision 用腳本重建。其他沒放的東西與原因，見 data repo 的[「沒放的東西」](https://github.com/tznthou/deepseek-code-review-data#沒放的東西)。
