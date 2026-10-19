@@ -23,7 +23,7 @@ $ ./review-local.sh origin/main          # 本機先試一次，不碰 GitHub
 
 | 標的 | 實測 | 建議 |
 |---|---|---|
-| GitHub workflow YAML | 新增 workflow 的 [PR #2](https://github.com/tznthou/deepseek-code-review/pull/2) 4 筆：1 筆是該修的 bug、1 筆是處理方式不一致、1 筆部分成立、1 筆不成立；修正 workflow 的 [PR #3](https://github.com/tznthou/deepseek-code-review/pull/3) 3 筆：1 筆是設計取捨、2 筆不成立 | ✅ 抓到過該修的 bug |
+| GitHub workflow YAML | 新增 workflow 的 [PR #2](https://github.com/tznthou/deepseek-code-review/pull/2) 4 筆：1 筆是該修的 bug、1 筆是處理方式不一致、1 筆部分成立、1 筆不成立；修正 workflow 的 [PR #3](https://github.com/tznthou/deepseek-code-review/pull/3) 3 筆：1 筆是處理方式不一致、2 筆不成立 | ✅ 抓到過該修的 bug |
 | TypeScript／React（22 檔） | 引用的 code 逐字核對，零捏造 | ✅ |
 | Rust（8 檔） | 提到的五個符號全部真實存在 | ✅ |
 | Shell（6 檔） | `deepseek-flash` 4 個技術斷言錯 3 個；`v4-pro` 抓到真的參數驗證缺口 | ⚠️ 一定要用 `v4-pro`，且每筆實跑 |
