@@ -368,10 +368,10 @@ The nested job 'review' is requesting 'actions: read, pull-requests: write', but
 
 ---
 
-## 客製：rubric 比換模型重要
+## 客製：把 repo 常踩的坑寫進 rubric
 
-實測結論：**把你這個 repo 常踩的坑寫進 rubric，比換模型有效得多。**
-不客製的話 review 會淨是通用意見。
+實測：**同一題，換模型沒抓到，把 repo 常踩的坑寫進 rubric 就抓到了**（只有一題、每格跑一次，見 README §2 步驟 5）。
+不客製的話，repo 自己的前提（diff 裡沒有的）它看不到。
 
 在你的 repo 放一份 rubric，然後在 caller 指過去：
 

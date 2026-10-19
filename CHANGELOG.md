@@ -43,6 +43,12 @@
   不算在「強」裡），§4 開頭的更新清單加一條。開頭表格 YAML 那列指向 §8，但 §8 沒有這筆，而且只算了 PR #2：
   兩個 PR 都連過去、用同一個標準逐筆寫（PR #2 的 4 筆是 1 筆 bug、1 筆處理方式不一致、1 筆部分成立、
   1 筆不成立；原本漏掉的 PR #3 是 1 筆設計取捨、2 筆不成立），建議欄拿掉「目前最好的標的」。
+- 「客製 rubric 比換模型有效」還在 USAGE「客製」那節與 reusable post workflow 的 `rubric-path` 說明；
+  SETUP-CHECKLIST 的 rubric 那項沒有比較句，但只寫了 v4-pro 那一臂、沒有但書。USAGE 與 SETUP-CHECKLIST 改成
+  只寫量到的那一題（USAGE 的標題拿掉比較）；兩處的「不客製只會拿到通用意見」也說多了，改成 repo 自己的前提
+  它看不到（`typed-rules` 預設開著，workflow 與 Python 的一般前提本來就會送）。workflow 的說明改成講 rubric
+  補的是什麼。`deepseek_review.py` 選預設模型的註解拿掉「行號 4/4 命中」，那是 §4 開頭說會誤導的指標。
+  只動說明文字與註解，行為不變。
 
 ## [1.6.0] - 2026-09-28
 

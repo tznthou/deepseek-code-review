@@ -44,7 +44,7 @@ DEFAULT_BASE_URL = "https://api.deepseek.com"
 # 2026-09-19 實測（同一份 diff、同樣 thinking=disabled）：
 #   deepseek-flash   ccRecall #129（shell）5 筆 finding，其中一筆的 4 個技術斷言錯了 3 個；
 #                    真正的 SQL 注入缺口只給 0.6 信心，會被預設 --min-confidence 0.7 丟掉。
-#   deepseek-v4-pro  同一題 4 筆、行號 4/4 命中，直接指出 `case` 的尾端萬用字元擋不住注入，信心 0.8。
+#   deepseek-v4-pro  同一題 4 筆，直接指出 `case` 的尾端萬用字元擋不住注入，信心 0.8。
 # 價差約 4 倍（單次 $0.009–0.013 vs $0.003），但「語氣篤定卻講錯機制」的成本更高，故預設用 pro。
 DEFAULT_MODEL = "deepseek-v4-pro"
 DEFAULT_MAX_DIFF_CHARS = 400_000
