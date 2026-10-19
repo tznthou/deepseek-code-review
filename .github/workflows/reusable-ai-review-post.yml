@@ -34,7 +34,7 @@ on:
       rubric-path:
         description: >
           呼叫方 repo 裡的自訂 rubric 路徑（例如 .github/review-rubric.md）。
-          留空則用 kit 內建的通用 rubric。**實測客製 rubric 比換模型有效得多。**
+          留空則用 kit 內建的通用 rubric。把 repo 常踩的坑寫進來，模型就看得到 diff 以外的前提。
         required: false
         type: string
         default: ''
